@@ -102,23 +102,31 @@
         const overlayInicio = document.getElementById('overlay-inicio');
         const infoDiv = document.getElementById('info');
 
-        function initThree() {
+        // ============================================
+        // CORRECCION: initThree es async para poder
+        // esperar a makeXRCompatible()
+        // ============================================
+        async function initThree() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(0, 1.6, 0);
 
-            // ============================================
-            // CORRECCION: Crear canvas y contexto manualmente
-            // con xrCompatible: true antes de pasar a WebXR
-            // ============================================
             const canvas = document.createElement('canvas');
-            gl = canvas.getContext('webgl2', { xrCompatible: true, antialias: true }) 
-              || canvas.getContext('webgl', { xrCompatible: true, antialias: true });
+            document.body.appendChild(canvas);
+
+            gl = canvas.getContext('webgl2', { antialias: true }) 
+              || canvas.getContext('webgl', { antialias: true });
 
             if (!gl) {
                 alert('WebGL no esta soportado en este dispositivo.');
                 throw new Error('WebGL no disponible');
             }
+
+            // ============================================
+            // CORRECCION CLAVE: Marcar el contexto como
+            // XR-compatible de forma asincrona
+            // ============================================
+            await gl.makeXRCompatible();
 
             renderer = new THREE.WebGLRenderer({ 
                 canvas: canvas, 
@@ -126,12 +134,10 @@
                 antialias: true, 
                 alpha: false 
             });
-            // ============================================
 
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
-            document.body.appendChild(canvas);
 
             // Luces
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.5);
@@ -255,7 +261,11 @@
                 infoDiv.style.display = 'block';
                 infoDiv.textContent = 'Iniciando ARCore...';
 
-                initThree();
+                // ============================================
+                // CORRECCION: Esperar a que initThree termine
+                // (ahora es asincrona por makeXRCompatible)
+                // ============================================
+                await initThree();
 
                 xrSession = await navigator.xr.requestSession('immersive-ar', {
                     requiredFeatures: ['local-floor'],
@@ -304,7 +314,6 @@
             const tempScale = new THREE.Vector3();
             viewMat.decompose(tempPos, quat, tempScale);
 
-            // Solo rotacion, posicion fija
             camera.position.set(0, 1.6, 0);
             camera.quaternion.copy(quat);
             camera.updateMatrix();
