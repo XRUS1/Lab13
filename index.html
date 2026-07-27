@@ -90,13 +90,11 @@
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-        // ==================== VARIABLES GLOBALES ====================
         let camera, scene, renderer;
         let gl = null;
         let xrSession = null;
         let xrRefSpace = null;
         let xrGlLayer = null;
-
         let modeloEscena = null;
         let boundsLine = null;
 
@@ -104,23 +102,36 @@
         const overlayInicio = document.getElementById('overlay-inicio');
         const infoDiv = document.getElementById('info');
 
-        // ==================== INICIALIZACION THREE.JS ====================
         function initThree() {
             scene = new THREE.Scene();
-
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            // Posicion fija: altura de ojos, sin desplazamiento lateral
             camera.position.set(0, 1.6, 0);
 
-            // alpha: false para tapar la camara real del AR con contenido opaco
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            // ============================================
+            // CORRECCION: Crear canvas y contexto manualmente
+            // con xrCompatible: true antes de pasar a WebXR
+            // ============================================
+            const canvas = document.createElement('canvas');
+            gl = canvas.getContext('webgl2', { xrCompatible: true, antialias: true }) 
+              || canvas.getContext('webgl', { xrCompatible: true, antialias: true });
+
+            if (!gl) {
+                alert('WebGL no esta soportado en este dispositivo.');
+                throw new Error('WebGL no disponible');
+            }
+
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: canvas, 
+                context: gl,
+                antialias: true, 
+                alpha: false 
+            });
+            // ============================================
+
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
-            // NO habilitamos renderer.xr: manejamos la sesion manualmente
-            document.body.appendChild(renderer.domElement);
-
-            gl = renderer.getContext();
+            document.body.appendChild(canvas);
 
             // Luces
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.5);
@@ -131,7 +142,7 @@
             dirLight.position.set(10, 25, 10);
             scene.add(dirLight);
 
-            // Skybox equirectangular opaco (tapa la camara real del AR)
+            // Skybox equirectangular opaco
             const texLoader = new THREE.TextureLoader();
             texLoader.load('textures/textura.png',
                 (texture) => {
@@ -140,7 +151,6 @@
                     scene.background = texture;
                     scene.environment = texture;
 
-                    // Esfera invertida como skybox visual adicional
                     const geo = new THREE.SphereGeometry(500, 60, 40);
                     geo.scale(-1, 1, 1);
                     const mat = new THREE.MeshBasicMaterial({
@@ -159,7 +169,7 @@
                 }
             );
 
-            // Modelo GLTF anclado al piso (Y=0)
+            // Modelo GLTF
             const loader = new GLTFLoader();
             loader.load('models/gltf/camp/ciudad.gltf',
                 (gltf) => {
@@ -205,7 +215,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // ==================== BOUNDS DE HABITACION ====================
         function dibujarLimites(refSpace) {
             if (!refSpace.boundsGeometry || refSpace.boundsGeometry.length === 0) return;
 
@@ -229,7 +238,6 @@
             };
         }
 
-        // ==================== SESION WEBXR MANUAL ====================
         async function iniciarExperiencia() {
             if (!navigator.xr) {
                 alert('WebXR no esta soportado en este navegador.');
@@ -257,7 +265,6 @@
                 xrGlLayer = new XRWebGLLayer(xrSession, gl);
                 xrSession.updateRenderState({ baseLayer: xrGlLayer });
 
-                // Intentar bounded-floor primero, fallback a local-floor (igual que el original)
                 try {
                     const boundedRefSpace = await xrSession.requestReferenceSpace('bounded-floor');
                     xrRefSpace = boundedRefSpace;
@@ -278,7 +285,6 @@
             }
         }
 
-        // ==================== LOOP DE RENDER MANUAL ====================
         function onXRFrame(time, frame) {
             const session = frame.session;
             session.requestAnimationFrame(onXRFrame);
@@ -286,29 +292,24 @@
             const pose = frame.getViewerPose(xrRefSpace);
             if (!pose || pose.views.length === 0) return;
 
-            // En AR monoscopico hay exactamente 1 vista
             const view = pose.views[0];
             const viewport = xrGlLayer.getViewport(view);
 
-            // Enlazar framebuffer de WebXR y establecer viewport
             gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
             gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-            // Extraer SOLO la rotacion del viewer pose.
-            // La posicion se ignora intencionalmente para evitar que el usuario "camine".
             const viewMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
             const tempPos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
             const tempScale = new THREE.Vector3();
             viewMat.decompose(tempPos, quat, tempScale);
 
-            // Forzar posicion fija: origen del piso, altura de ojos 1.6m
+            // Solo rotacion, posicion fija
             camera.position.set(0, 1.6, 0);
             camera.quaternion.copy(quat);
             camera.updateMatrix();
             camera.updateMatrixWorld();
 
-            // Proyeccion desde WebXR
             camera.projectionMatrix.fromArray(view.projectionMatrix);
             camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 
