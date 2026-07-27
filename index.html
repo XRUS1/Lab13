@@ -97,6 +97,7 @@
         let xrGlLayer = null;
         let modeloEscena = null;
         let boundsLine = null;
+	let quatObjetivo = new THREE.Quaternion();
 
         const btnEntrar = document.getElementById('btn-entrar');
         const overlayInicio = document.getElementById('overlay-inicio');
@@ -315,7 +316,8 @@
             viewMat.decompose(tempPos, quat, tempScale);
 
             camera.position.set(0, 1.6, 0);
-            camera.quaternion.copy(quat);
+            quatObjetivo.copy(quat);
+	    camera.quaternion.slerp(quatObjetivo, 0.12);
             camera.updateMatrix();
             camera.updateMatrixWorld();
 
@@ -329,4 +331,3 @@
     </script>
 </body>
 </html>
-
