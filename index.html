@@ -100,16 +100,12 @@
         const btnEntrar = document.getElementById('btn-entrar');
         const overlayInicio = document.getElementById('overlay-inicio');
 
-        // Escucha táctil primaria obligatoria para Android
         btnEntrar.addEventListener('click', () => {
-            // Desactivar y ocultar el overlay de interfaz inmediatamente al tacto
             overlayInicio.style.display = 'none';
             calibrado = false;
 
-            // Arrancar el motor gráfico de Three.js de manera completamente síncrona dentro del click
             initEngine();
 
-            // Enlazar los sensores del teléfono tras el gesto de usuario garantizado
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission()
                     .then(permissionState => {
@@ -137,18 +133,18 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
+            // Luz hemisférica blanca e iluminación direccional intensa para evitar mallas negras
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 2.5);
             hemiLight.position.set(0, 20, 0);
             scene.add(hemiLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
             directionalLight.position.set(10, 25, 10);
             scene.add(directionalLight);
 
-            // Iniciar el bucle de renderizado inmediatamente para renderizar buffers limpios
             animate();
 
-            // Cargas asíncronas secundarias en segundo plano (No interrumpen la ejecución del render)
+            // Carga asíncrona de la esfera de textura 360 envolvente
             const textureLoader = new THREE.TextureLoader();
             textureLoader.load('media/textures/textura.png', (texture) => {
                 texture.mapping = THREE.EquirectangularReflectionMapping;
@@ -165,6 +161,7 @@
                 scene.background = new THREE.Color(0x111122);
             });
 
+            // Carga asíncrona del modelo ciudad.gltf desde tus carpetas raíz originales
             const loader = new GLTFLoader();
             loader.load('media/gltf/camp/ciudad.gltf', (gltf) => {
                 objetoManipulable = gltf.scene;
@@ -232,7 +229,8 @@
 
             camera.position.set(0, 1.6, 0);
 
-            if (calibrated) {
+            // CORREGIDO: Sincronización estricta de la variable global de calibración
+            if (calibrado) {
                 camera.rotation.copy(eulerCamara);
             }
 
