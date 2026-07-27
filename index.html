@@ -100,30 +100,32 @@
         const btnEntrar = document.getElementById('btn-entrar');
         const overlayInicio = document.getElementById('overlay-inicio');
 
+        // Escucha táctil primaria obligatoria para Android
         btnEntrar.addEventListener('click', () => {
+            // Desactivar y ocultar el overlay de interfaz inmediatamente al tacto
+            overlayInicio.style.display = 'none';
+            calibrado = false;
+
+            // Arrancar el motor gráfico de Three.js de manera completamente síncrona dentro del click
+            initEngine();
+
+            // Enlazar los sensores del teléfono tras el gesto de usuario garantizado
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission()
                     .then(permissionState => {
                         if (permissionState === 'granted') {
-                            activarSensores();
+                            window.addEventListener('deviceorientation', onDeviceOrientation, false);
                         } else {
-                            alert('Permiso de sensores requerido para la exploración 360.');
+                            alert('Permiso de sensores requerido.');
                         }
                     })
                     .catch(console.error);
             } else {
-                activarSensores();
+                window.addEventListener('deviceorientation', onDeviceOrientation, false);
             }
         });
 
-        function activarSensores() {
-            calibrado = false;
-            window.addEventListener('deviceorientation', onDeviceOrientation, false);
-            overlayInicio.style.display = 'none';
-            init();
-        }
-
-        function init() {
+        function initEngine() {
             const canvas = document.getElementById('canvas3d');
             scene = new THREE.Scene();
 
@@ -143,10 +145,10 @@
             directionalLight.position.set(10, 25, 10);
             scene.add(directionalLight);
 
-            // Arrancar el ciclo gráfico INMEDIATAMENTE para que la pantalla no se quede congelada
+            // Iniciar el bucle de renderizado inmediatamente para renderizar buffers limpios
             animate();
 
-            // Cargar la textura de fondo de forma asíncrona
+            // Cargas asíncronas secundarias en segundo plano (No interrumpen la ejecución del render)
             const textureLoader = new THREE.TextureLoader();
             textureLoader.load('media/textures/textura.png', (texture) => {
                 texture.mapping = THREE.EquirectangularReflectionMapping;
@@ -159,11 +161,10 @@
                 const panoramaMesh = new THREE.Mesh(panoramaGeo, panoramaMat);
                 scene.add(panoramaMesh);
             }, undefined, (err) => {
-                console.warn("No se encontró media/textures/textura.png. Usando fallback de color sólido.");
+                console.warn("No se encontró textura, usando color sólido.");
                 scene.background = new THREE.Color(0x111122);
             });
 
-            // Cargar el modelo 3D de la ciudad de forma asíncrona sin bloquear la UI
             const loader = new GLTFLoader();
             loader.load('media/gltf/camp/ciudad.gltf', (gltf) => {
                 objetoManipulable = gltf.scene;
@@ -181,7 +182,7 @@
 
                 scene.add(objetoManipulable);
             }, undefined, (error) => {
-                console.warn("No se encontró el GLTF. Cargando cubos auxiliares.");
+                console.warn("No se encontró ciudad.gltf, ejecutando entorno geométrico.");
                 objetoManipulable = new THREE.Group();
                 const boxGeom = new THREE.BoxGeometry(2, 5, 2);
                 const boxMat = new THREE.MeshStandardMaterial({ color: 0x445577 });
@@ -218,6 +219,7 @@
         }
 
         function onWindowResize() {
+            if (!camera || !renderer) return;
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -226,9 +228,11 @@
         function animate() {
             requestAnimationFrame(animate);
 
+            if (!camera || !renderer || !scene) return;
+
             camera.position.set(0, 1.6, 0);
 
-            if (calibrado) {
+            if (calibrated) {
                 camera.rotation.copy(eulerCamara);
             }
 
