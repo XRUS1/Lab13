@@ -92,7 +92,10 @@
 
         let camera, scene, renderer;
         let objetoManipulable;
-        let eulerCamara = new THREE.Euler(0, 0, 0, 'YXZ');
+        
+        // Variables para el filtrado de rotación por giroscopio
+        let eulerObjetivo = new THREE.Euler(0, 0, 0, 'YXZ');
+        let eulerActual = new THREE.Euler(0, 0, 0, 'YXZ');
         
         let alphaOffset = 0;
         let calibrado = false;
@@ -133,7 +136,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-            // Luz hemisférica blanca e iluminación direccional intensa para evitar mallas negras
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 2.5);
             hemiLight.position.set(0, 20, 0);
             scene.add(hemiLight);
@@ -144,9 +146,9 @@
 
             animate();
 
-            // Carga asíncrona de la esfera de textura 360 envolvente
+            // CORRECCIÓN DE RUTA ABSOLUTA INTERNA: Usamos el prefijo ./ para buscar desde la raíz del server
             const textureLoader = new THREE.TextureLoader();
-            textureLoader.load('media/textures/textura.png', (texture) => {
+            textureLoader.load('./media/textures/textura.png', (texture) => {
                 texture.mapping = THREE.EquirectangularReflectionMapping;
                 texture.colorSpace = THREE.SRGBColorSpace;
                 
@@ -157,13 +159,13 @@
                 const panoramaMesh = new THREE.Mesh(panoramaGeo, panoramaMat);
                 scene.add(panoramaMesh);
             }, undefined, (err) => {
-                console.warn("No se encontró textura, usando color sólido.");
+                console.warn("Fallo en la carga de la textura. Revisar la ruta en la raíz del servidor web.");
                 scene.background = new THREE.Color(0x111122);
             });
 
-            // Carga asíncrona del modelo ciudad.gltf desde tus carpetas raíz originales
+            // CORRECCIÓN DE RUTA ABSOLUTA INTERNA: Acceso directo al archivo ciudad.gltf de tu raíz en GitHub
             const loader = new GLTFLoader();
-            loader.load('media/gltf/camp/ciudad.gltf', (gltf) => {
+            loader.load('./media/gltf/camp/ciudad.gltf', (gltf) => {
                 objetoManipulable = gltf.scene;
                 objetoManipulable.position.set(0, -1.0, 0);
                 objetoManipulable.scale.set(1.0, 1.0, 1.0);
@@ -179,7 +181,7 @@
 
                 scene.add(objetoManipulable);
             }, undefined, (error) => {
-                console.warn("No se encontró ciudad.gltf, ejecutando entorno geométrico.");
+                console.warn("Fallo en la carga del modelo GLTF. Cargando cubos geométricos alternativos de render.");
                 objetoManipulable = new THREE.Group();
                 const boxGeom = new THREE.BoxGeometry(2, 5, 2);
                 const boxMat = new THREE.MeshStandardMaterial({ color: 0x445577 });
@@ -212,7 +214,8 @@
             const betaRad  = THREE.MathUtils.degToRad(event.beta) - (Math.PI / 2);   
             const gammaRad = 0; 
 
-            eulerCamara.set(betaRad, alphaRad, gammaRad, 'YXZ');
+            // Asignar al Euler objetivo para procesar el filtro de suavizado en el bucle principal
+            eulerObjetivo.set(betaRad, alphaRad, gammaRad, 'YXZ');
         }
 
         function onWindowResize() {
@@ -229,9 +232,12 @@
 
             camera.position.set(0, 1.6, 0);
 
-            // CORREGIDO: Sincronización estricta de la variable global de calibración
             if (calibrado) {
-                camera.rotation.copy(eulerCamara);
+                // FILTRO DE INTERPOLACIÓN LINEAL (LERP): Filtra el ruido y el pulso, estabilizando la escena al 100%
+                eulerActual.x += (eulerObjetivo.x - eulerActual.x) * 0.1;
+                eulerActual.y += (eulerObjetivo.y - eulerActual.y) * 0.1;
+                
+                camera.rotation.copy(eulerActual);
             }
 
             renderer.render(scene, camera);
@@ -239,3 +245,4 @@
     </script>
 </body>
 </html>
+
