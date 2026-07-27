@@ -308,15 +308,13 @@
             gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
             gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-            const viewMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
-            const tempPos = new THREE.Vector3();
-            const quat = new THREE.Quaternion();
-            const tempScale = new THREE.Vector3();
+	    // DESPUÉS (matriz directa - rotación correcta):
+	    const viewMat = new THREE.Matrix4().fromArray(view.transform.matrix);
+	    const tempPos = new THREE.Vector3();
+	    const quat = new THREE.Quaternion();
+	    const tempScale = new THREE.Vector3();
             viewMat.decompose(tempPos, quat, tempScale);
 		
-	 // DESPUÉS (correcto - usa la orientación directa del viewer):
-	    const ori = view.transform.orientation;
-            const quat = new THREE.Quaternion(ori.x, ori.y, ori.z, ori.w);
             camera.position.set(0, 1.6, 0);
             camera.quaternion.copy(quat);
             camera.updateMatrix();
