@@ -65,7 +65,7 @@
 <body>
     <div id="overlay-inicio">
         <h2>Proyecto Laboratorio IHC</h2>
-        <p id="indicaciones">Sostén tu teléfono en posición vertical frente a tus ojos mirando AL FRENTE (NO hacia el cielo), luego presiona el botón.</p>
+        <p id="indicaciones">Sostén tu teléfono en posición VERTICAL mirando al frente de forma natural, luego presiona el botón.</p>
         <button id="btn-conectar">CALIBRAR Y EMPEZAR</button>
     </div>
 
@@ -88,12 +88,14 @@
 
         let camera, scene, renderer;
         let objetoManipulable;
-        let deviceRotation = new THREE.Euler(0, 0, 0, 'YXZ');
-
-        // Variables para congelar el estado exacto del giroscopio al dar click
-        let baseQuaternion = new THREE.Quaternion();
-        let currentDeviceQuaternion = new THREE.Quaternion();
+        
+        const currentQuaternion = new THREE.Quaternion();
+        const baseQuaternion = new THREE.Quaternion();
         let calibrado = false;
+
+        const zee = new THREE.Vector3(0, 0, 1);
+        const eulerAndroid = new THREE.Euler();
+        const qHelper = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
         const btnConectar = document.getElementById('btn-conectar');
         const overlayInicio = document.getElementById('overlay-inicio');
@@ -116,7 +118,7 @@
 
         function activarSensores() {
             calibrado = false;
-            window.addEventListener('deviceorientation', onDeviceOrientation);
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
             overlayInicio.style.display = 'none';
             init();
         }
@@ -133,7 +135,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-            // Iluminación hemisférica y direccional fuerte para que no haya sombras negras artificiales
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
             hemiLight.position.set(0, 20, 0);
             scene.add(hemiLight);
@@ -158,24 +159,17 @@
                 scene.background = new THREE.Color(0x111122);
             });
 
-            // ELIMINADA POR COMPLETO LA RETÍCULA OSCURA Y EL PLANO NEGRO QUE TAPABA EL MODELO
-            // Ahora la visibilidad depende 100% de tu archivo ciudad.gltf
-
             const loader = new GLTFLoader();
             loader.load('./models/gltf/camp/ciudad.gltf', (gltf) => {
                 objetoManipulable = gltf.scene;
-                
-                // AJUSTE DE PISO CRÍTICO: Bajamos el modelo en el eje Y para que la base quede asentada
-                // y los elementos (molino, piedras, caminos) no queden cortados u ocultos bajo el origen.
                 objetoManipulable.position.set(0, -1.0, 0); 
                 objetoManipulable.scale.set(1.0, 1.0, 1.0);
                 
-                // Forzar iluminación y render correcto de todos los materiales hijos de tu ciudad
                 objetoManipulable.traverse((node) => {
                     if (node.isMesh) {
                         node.material.depthWrite = true;
                         node.material.transparent = false;
-                        node.material.side = THREE.DoubleSide; // Renderizar ambas caras por si hay geometrías invertidas
+                        node.material.side = THREE.DoubleSide;
                         if (node.material.map) node.material.map.colorSpace = THREE.SRGBColorSpace;
                     }
                 });
@@ -202,23 +196,25 @@
             animate();
         }
 
-        // SOLUCIÓN TOTAL A LA ROTACIÓN INICIAL MEDIANTE MATRICES DE QUATERNION RELATIVOS
         function onDeviceOrientation(event) {
             if (event.alpha === null || event.beta === null || event.gamma === null) return;
-            
-            // Convertir lecturas crudas del giroscopio a radianes
-            const alpha = THREE.MathUtils.degToRad(event.alpha); 
-            const beta = THREE.MathUtils.degToRad(event.beta);   
-            const gamma = THREE.MathUtils.degToRad(event.gamma);  
 
-            // Crear la orientación actual del teléfono usando el orden de rotación de dispositivos móviles
-            deviceRotation.set(beta, alpha, -gamma, 'YXZ');
-            currentDeviceQuaternion.setFromEuler(deviceRotation);
+            const alpha = THREE.MathUtils.degToRad(event.alpha);
+            const beta = THREE.MathUtils.degToRad(event.beta);
+            const gamma = THREE.MathUtils.degToRad(event.gamma);
 
-            // CALIBRACIÓN MATEMÁTICA ABSOLUTA: Al dar click, guardamos la rotación exacta del teléfono (sea cual sea)
-            // e invertimos esa matriz para usarla como el "Cero Real" (Frente absoluto del alumno)
+            eulerAndroid.set(beta, alpha, -gamma, 'YXZ');
+            currentQuaternion.setFromEuler(eulerAndroid);
+            currentQuaternion.multiply(qHelper); 
+            currentQuaternion.multiply(baseQuaternion.setFromAxisAngle(zee, -gamma)); 
+
             if (!calibrado) {
-                baseQuaternion.copy(currentDeviceQuaternion).invert();
+                const vFrente = new THREE.Vector3(0, 0, -1).applyQuaternion(currentQuaternion);
+                vFrente.y = 0; 
+                vFrente.normalize();
+
+                const anguloAjusteY = Math.atan2(vFrente.x, vFrente.z);
+                baseQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), anguloAjusteY);
                 calibrado = true;
             }
         }
@@ -232,13 +228,14 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            // Anclaje de posición constante de la cámara respecto al suelo
             camera.position.set(0, 1.6, 0);
 
             if (calibrado) {
-                // Multiplicar la rotación base invertida por la rotación actual del sensor.
-                // Esto obliga a que la orientación de inicio sea EXACTAMENTE el frente del usuario (0,0,0)
-                camera.quaternion.multiplyQuaternions(baseQuaternion, currentDeviceQuaternion);
+                camera.quaternion.multiplyQuaternions(baseQuaternion, currentQuaternion);
             }
 
             renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
