@@ -309,22 +309,25 @@
 		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
 		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-		// Extraer yaw de la matriz directa (funciona bien)
+		// Extraer quaternion del viewer
 		const mat = new THREE.Matrix4().fromArray(view.transform.matrix);
 		const p1 = new THREE.Vector3(), q1 = new THREE.Quaternion(), s1 = new THREE.Vector3();
 		mat.decompose(p1, q1, s1);
-		const e1 = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
 
-		// Extraer pitch de la matriz inversa (pitch correcto)
-		const invMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
-		const p2 = new THREE.Vector3(), q2 = new THREE.Quaternion(), s2 = new THREE.Vector3();
-		invMat.decompose(p2, q2, s2);
-		const e2 = new THREE.Euler().setFromQuaternion(q2, 'YXZ');
+		// Descomponer a Euler YXZ para obtener yaw/pitch/roll por separado
+		const euler = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
 
-		// Combinar: yaw del directo, pitch del inverso, roll del directo
-		camera.rotation.set(e2.x, e1.y, e1.z, 'YXZ');
+		// Reconstruir quaternion con PITCH INVERTIDO, yaw y roll intactos
+		const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), euler.y);
+		const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -euler.x);
+		const qRoll  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), euler.z);
+
+		const qFinal = new THREE.Quaternion();
+		qFinal.multiplyQuaternions(qYaw, qPitch);
+		qFinal.multiply(qRoll);
 
 		camera.position.set(0, 1.6, 0);
+		camera.quaternion.copy(qFinal);
 		camera.updateMatrix();
 		camera.updateMatrixWorld();
 
