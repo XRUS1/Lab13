@@ -309,17 +309,20 @@
 		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
 		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-		// MATRIZ DIRECTA del viewer (no inverse)
-		const viewMat = new THREE.Matrix4().fromArray(view.transform.matrix);
-		const tempPos = new THREE.Vector3();
+		// Matriz directa del viewer (no inverse)
+		const mat = new THREE.Matrix4().fromArray(view.transform.matrix);
+		const pos = new THREE.Vector3();
 		const quat = new THREE.Quaternion();
-		const tempScale = new THREE.Vector3();
-		viewMat.decompose(tempPos, quat, tempScale);
+		const scale = new THREE.Vector3();
+		mat.decompose(pos, quat, scale);
 
-		// Posición fija, rotación suavizada
+		// CORRECCION: Invertir solo el pitch para alinear con Three.js
+		const euler = new THREE.Euler().setFromQuaternion(quat, 'YXZ');
+		euler.x = -euler.x;
+		camera.quaternion.setFromEuler(euler);
+
+		// Posicion fija (no caminar, solo girar)
 		camera.position.set(0, 1.6, 0);
-		quatObjetivo.copy(quat);
-		camera.quaternion.slerp(quatObjetivo, 0.12);
 		camera.updateMatrix();
 		camera.updateMatrixWorld();
 
@@ -328,7 +331,7 @@
 
 		renderer.render(scene, camera);
 	}
-
+	
         btnEntrar.addEventListener('click', iniciarExperiencia);
     </script>
 </body>
