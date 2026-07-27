@@ -296,36 +296,38 @@
             }
         }
 
-        function onXRFrame(time, frame) {
-            const session = frame.session;
-            session.requestAnimationFrame(onXRFrame);
+	function onXRFrame(time, frame) {
+		const session = frame.session;
+		session.requestAnimationFrame(onXRFrame);
 
-            const pose = frame.getViewerPose(xrRefSpace);
-            if (!pose || pose.views.length === 0) return;
+		const pose = frame.getViewerPose(xrRefSpace);
+		if (!pose || pose.views.length === 0) return;
 
-            const view = pose.views[0];
-            const viewport = xrGlLayer.getViewport(view);
+		const view = pose.views[0];
+		const viewport = xrGlLayer.getViewport(view);
 
-            gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
-            gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
+		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-            const viewMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
-            const tempPos = new THREE.Vector3();
-            const quat = new THREE.Quaternion();
-            const tempScale = new THREE.Vector3();
-            viewMat.decompose(tempPos, quat, tempScale);
+		// MATRIZ DIRECTA del viewer (no inverse)
+		const viewMat = new THREE.Matrix4().fromArray(view.transform.matrix);
+		const tempPos = new THREE.Vector3();
+		const quat = new THREE.Quaternion();
+		const tempScale = new THREE.Vector3();
+		viewMat.decompose(tempPos, quat, tempScale);
 
-            camera.position.set(0, 1.6, 0);
-            quatObjetivo.copy(quat);
-	    camera.quaternion.slerp(quatObjetivo, 0.12);
-            camera.updateMatrix();
-            camera.updateMatrixWorld();
+		// Posición fija, rotación suavizada
+		camera.position.set(0, 1.6, 0);
+		quatObjetivo.copy(quat);
+		camera.quaternion.slerp(quatObjetivo, 0.12);
+		camera.updateMatrix();
+		camera.updateMatrixWorld();
 
-            camera.projectionMatrix.fromArray(view.projectionMatrix);
-            camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+		camera.projectionMatrix.fromArray(view.projectionMatrix);
+		camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 
-            renderer.render(scene, camera);
-        }
+		renderer.render(scene, camera);
+	}
 
         btnEntrar.addEventListener('click', iniciarExperiencia);
     </script>
