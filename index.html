@@ -65,7 +65,7 @@
 <body>
     <div id="overlay-inicio">
         <h2>Proyecto Laboratorio IHC</h2>
-        <p id="indicaciones">Sostén tu teléfono en posición vertical frente a tus ojos mirando hacia el frente, luego presiona el botón para calibrar el horizonte.</p>
+        <p id="indicaciones">Sostén tu teléfono en posición vertical frente a tus ojos mirando AL FRENTE (NO hacia el cielo), luego presiona el botón.</p>
         <button id="btn-conectar">CALIBRAR Y EMPEZAR</button>
     </div>
 
@@ -90,8 +90,9 @@
         let objetoManipulable;
         let deviceRotation = new THREE.Euler(0, 0, 0, 'YXZ');
 
-        let alphaOffset = 0;
-        let betaOffset = 0;
+        // Variables para congelar el estado exacto del giroscopio al dar click
+        let baseQuaternion = new THREE.Quaternion();
+        let currentDeviceQuaternion = new THREE.Quaternion();
         let calibrado = false;
 
         const btnConectar = document.getElementById('btn-conectar');
@@ -130,16 +131,15 @@
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-
-            // Ajuste de color space para que los modelos GLTF y texturas no se oscurezcan
             renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-            // Iluminación intensa para garantizar que el modelo no se vea negro por falta de luz
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
-            scene.add(ambientLight);
+            // Iluminación hemisférica y direccional fuerte para que no haya sombras negras artificiales
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
+            hemiLight.position.set(0, 20, 0);
+            scene.add(hemiLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
-            directionalLight.position.set(10, 20, 10);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
+            directionalLight.position.set(10, 25, 10);
             scene.add(directionalLight);
 
             const textureLoader = new THREE.TextureLoader();
@@ -158,23 +158,24 @@
                 scene.background = new THREE.Color(0x111122);
             });
 
-            // Se eliminó la retícula verde/negra auxiliar para evitar que tape tu escenario real
-            // El piso del mundo ahora depende puramente de la iluminación y la geometría de tu modelo
+            // ELIMINADA POR COMPLETO LA RETÍCULA OSCURA Y EL PLANO NEGRO QUE TAPABA EL MODELO
+            // Ahora la visibilidad depende 100% de tu archivo ciudad.gltf
 
-            // RUTA RESTAURADA A CIUDAD.GLTF COMO ME INDICASTE
             const loader = new GLTFLoader();
             loader.load('./models/gltf/camp/ciudad.gltf', (gltf) => {
                 objetoManipulable = gltf.scene;
                 
-                // Colocado en el origen, justo debajo de la cámara (y = 0)
-                objetoManipulable.position.set(0, 0, 0); 
+                // AJUSTE DE PISO CRÍTICO: Bajamos el modelo en el eje Y para que la base quede asentada
+                // y los elementos (molino, piedras, caminos) no queden cortados u ocultos bajo el origen.
+                objetoManipulable.position.set(0, -1.0, 0); 
                 objetoManipulable.scale.set(1.0, 1.0, 1.0);
                 
-                // Forzar a que los materiales internos del modelo reaccionen correctamente a la luz
+                // Forzar iluminación y render correcto de todos los materiales hijos de tu ciudad
                 objetoManipulable.traverse((node) => {
                     if (node.isMesh) {
                         node.material.depthWrite = true;
                         node.material.transparent = false;
+                        node.material.side = THREE.DoubleSide; // Renderizar ambas caras por si hay geometrías invertidas
                         if (node.material.map) node.material.map.colorSpace = THREE.SRGBColorSpace;
                     }
                 });
@@ -201,26 +202,25 @@
             animate();
         }
 
+        // SOLUCIÓN TOTAL A LA ROTACIÓN INICIAL MEDIANTE MATRICES DE QUATERNION RELATIVOS
         function onDeviceOrientation(event) {
-            if (event.alpha === null || event.beta === null) return;
+            if (event.alpha === null || event.beta === null || event.gamma === null) return;
             
-            // Ajuste matemático estricto: Corrige los 90 grados del teléfono sostenido verticalmente de frente
-            if (!calibrado) {
-                alphaOffset = event.alpha;
-                betaOffset = event.beta - 90; 
-                calibrado = true;
-            }
-
-            let alphaRelativo = event.alpha - alphaOffset;
-            if (alphaRelativo < 0) alphaRelativo += 360;
-
-            let betaRelativo = event.beta - betaOffset;
-
-            const alpha = THREE.MathUtils.degToRad(alphaRelativo); 
-            const beta = THREE.MathUtils.degToRad(betaRelativo);   
+            // Convertir lecturas crudas del giroscopio a radianes
+            const alpha = THREE.MathUtils.degToRad(event.alpha); 
+            const beta = THREE.MathUtils.degToRad(event.beta);   
             const gamma = THREE.MathUtils.degToRad(event.gamma);  
 
+            // Crear la orientación actual del teléfono usando el orden de rotación de dispositivos móviles
             deviceRotation.set(beta, alpha, -gamma, 'YXZ');
+            currentDeviceQuaternion.setFromEuler(deviceRotation);
+
+            // CALIBRACIÓN MATEMÁTICA ABSOLUTA: Al dar click, guardamos la rotación exacta del teléfono (sea cual sea)
+            // e invertimos esa matriz para usarla como el "Cero Real" (Frente absoluto del alumno)
+            if (!calibrado) {
+                baseQuaternion.copy(currentDeviceQuaternion).invert();
+                calibrado = true;
+            }
         }
 
         function onWindowResize() {
@@ -232,13 +232,13 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            // Bloqueo absoluto de posición: La cámara no sufre derivas espaciales, solo rotación pura
+            // Anclaje de posición constante de la cámara respecto al suelo
             camera.position.set(0, 1.6, 0);
 
-            camera.quaternion.setFromEuler(deviceRotation);
+            if (calibrado) {
+                // Multiplicar la rotación base invertida por la rotación actual del sensor.
+                // Esto obliga a que la orientación de inicio sea EXACTAMENTE el frente del usuario (0,0,0)
+                camera.quaternion.multiplyQuaternions(baseQuaternion, currentDeviceQuaternion);
+            }
 
             renderer.render(scene, camera);
-        }
-    </script>
-</body>
-</html>
