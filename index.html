@@ -65,7 +65,7 @@
 <body>
     <div id="overlay-inicio">
         <h2>Proyecto Laboratorio IHC</h2>
-        <p id="indicaciones">Sostén tu teléfono en posición VERTICAL mirando al frente de forma natural, luego presiona el botón.</p>
+        <p id="indicaciones">Sostén tu teléfono VERTICAL frente a tus ojos mirando al frente, luego presiona el botón.</p>
         <button id="btn-conectar">CALIBRAR Y EMPEZAR</button>
     </div>
 
@@ -89,13 +89,10 @@
         let camera, scene, renderer;
         let objetoManipulable;
         
-        const currentQuaternion = new THREE.Quaternion();
-        const baseQuaternion = new THREE.Quaternion();
+        // Estructuras de rotación basadas en matrices de Euler directas para evitar el bloqueo del quaternion relativo
+        let eulerCamara = new THREE.Euler(0, 0, 0, 'YXZ');
+        let alphaOffset = 0;
         let calibrado = false;
-
-        const zee = new THREE.Vector3(0, 0, 1);
-        const eulerAndroid = new THREE.Euler();
-        const qHelper = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
         const btnConectar = document.getElementById('btn-conectar');
         const overlayInicio = document.getElementById('overlay-inicio');
@@ -118,7 +115,7 @@
 
         function activarSensores() {
             calibrado = false;
-            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+            window.addEventListener('deviceorientation', onDeviceOrientation, false);
             overlayInicio.style.display = 'none';
             init();
         }
@@ -196,27 +193,31 @@
             animate();
         }
 
+        // SOLUCIÓN AL GIRO COMPLETO 360 Y AL EFECTO "LIMPIAPARABRISAS"
         function onDeviceOrientation(event) {
             if (event.alpha === null || event.beta === null || event.gamma === null) return;
 
-            const alpha = THREE.MathUtils.degToRad(event.alpha);
-            const beta = THREE.MathUtils.degToRad(event.beta);
-            const gamma = THREE.MathUtils.degToRad(event.gamma);
-
-            eulerAndroid.set(beta, alpha, -gamma, 'YXZ');
-            currentQuaternion.setFromEuler(eulerAndroid);
-            currentQuaternion.multiply(qHelper); 
-            currentQuaternion.multiply(baseQuaternion.setFromAxisAngle(zee, -gamma)); 
-
+            // 1. Calibración del Frente inicial (Eje Y)
             if (!calibrado) {
-                const vFrente = new THREE.Vector3(0, 0, -1).applyQuaternion(currentQuaternion);
-                vFrente.y = 0; 
-                vFrente.normalize();
-
-                const anguloAjusteY = Math.atan2(vFrente.x, vFrente.z);
-                baseQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), anguloAjusteY);
+                alphaOffset = event.alpha;
                 calibrado = true;
             }
+
+            // 2. Calcular la rotación horizontal libre restando el desvío inicial
+            let alphaRelativo = event.alpha - alphaOffset;
+            if (alphaRelativo < 0) alphaRelativo += 360;
+
+            // 3. Conversión directa a radianes de los ángulos del giroscopio de Android
+            const alphaRad = THREE.MathUtils.degToRad(alphaRelativo); 
+            
+            // Compensación matemática para teléfono en vertical de frente: beta a 90 grados es mirar al frente (0 rad)
+            const betaRad  = THREE.MathUtils.degToRad(event.beta) - (Math.PI / 2);   
+            
+            // Eliminamos la influencia de gamma (balanceo lateral) para erradicar por completo el efecto "limpiaparabrisas" inducido por el pulso
+            const gammaRad = 0; 
+
+            // 4. Asignar los ángulos directamente en el orden correcto 'YXZ' para permitir giros libres de 360 grados sin bloqueos
+            eulerCamara.set(betaRad, alphaRad, gammaRad, 'YXZ');
         }
 
         function onWindowResize() {
@@ -228,10 +229,12 @@
         function animate() {
             requestAnimationFrame(animate);
 
+            // Mantener la cámara estricta en el origen del piso tridimensional
             camera.position.set(0, 1.6, 0);
 
             if (calibrado) {
-                camera.quaternion.multiplyQuaternions(baseQuaternion, currentQuaternion);
+                // Sincronizar la orientación de la cámara usando la matriz Euler limpia corregida
+                camera.rotation.copy(eulerCamara);
             }
 
             renderer.render(scene, camera);
