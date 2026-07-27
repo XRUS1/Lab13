@@ -65,7 +65,7 @@
 <body>
     <div id="overlay-inicio">
         <h2>Proyecto Laboratorio IHC</h2>
-        <p id="indicaciones">Coloca tu teléfono en una superficie plana o sostenlo firme apuntando al frente, luego presiona el botón inferior para sincronizar los sensores.</p>
+        <p id="indicaciones">Sostén tu teléfono en posición vertical frente a tus ojos mirando hacia el frente, luego presiona el botón para calibrar el horizonte.</p>
         <button id="btn-conectar">CALIBRAR Y EMPEZAR</button>
     </div>
 
@@ -91,6 +91,7 @@
         let deviceRotation = new THREE.Euler(0, 0, 0, 'YXZ');
 
         let alphaOffset = 0;
+        let betaOffset = 0;
         let calibrado = false;
 
         const btnConectar = document.getElementById('btn-conectar');
@@ -130,10 +131,14 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+            // Ajuste de color space para que los modelos GLTF y texturas no se oscurezcan
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+            // Iluminación intensa para garantizar que el modelo no se vea negro por falta de luz
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
             directionalLight.position.set(10, 20, 10);
             scene.add(directionalLight);
 
@@ -153,27 +158,27 @@
                 scene.background = new THREE.Color(0x111122);
             });
 
-            const floorGeometry = new THREE.PlaneGeometry(100, 100);
-            const floorMaterial = new THREE.MeshStandardMaterial({
-                color: 0x050508,
-                roughness: 0.8,
-                metalness: 0.2
-            });
+            // Se eliminó la retícula verde/negra auxiliar para evitar que tape tu escenario real
+            // El piso del mundo ahora depende puramente de la iluminación y la geometría de tu modelo
 
-            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-            floor.rotation.x = -Math.PI / 2;
-            floor.position.y = 0; 
-            scene.add(floor);
-
-            const gridHelper = new THREE.GridHelper(100, 50, 0x00ff00, 0x222222);
-            gridHelper.position.y = 0.01;
-            scene.add(gridHelper);
-
+            // RUTA RESTAURADA A CIUDAD.GLTF COMO ME INDICASTE
             const loader = new GLTFLoader();
             loader.load('./models/gltf/camp/ciudad.gltf', (gltf) => {
                 objetoManipulable = gltf.scene;
+                
+                // Colocado en el origen, justo debajo de la cámara (y = 0)
                 objetoManipulable.position.set(0, 0, 0); 
                 objetoManipulable.scale.set(1.0, 1.0, 1.0);
+                
+                // Forzar a que los materiales internos del modelo reaccionen correctamente a la luz
+                objetoManipulable.traverse((node) => {
+                    if (node.isMesh) {
+                        node.material.depthWrite = true;
+                        node.material.transparent = false;
+                        if (node.material.map) node.material.map.colorSpace = THREE.SRGBColorSpace;
+                    }
+                });
+
                 scene.add(objetoManipulable);
             }, undefined, (error) => {
                 console.warn("No se encontró ciudad.gltf. Creando una cuadrícula de cubos como fallback.");
@@ -197,18 +202,22 @@
         }
 
         function onDeviceOrientation(event) {
-            if (event.alpha === null) return;
+            if (event.alpha === null || event.beta === null) return;
             
+            // Ajuste matemático estricto: Corrige los 90 grados del teléfono sostenido verticalmente de frente
             if (!calibrado) {
                 alphaOffset = event.alpha;
+                betaOffset = event.beta - 90; 
                 calibrado = true;
             }
 
             let alphaRelativo = event.alpha - alphaOffset;
             if (alphaRelativo < 0) alphaRelativo += 360;
 
+            let betaRelativo = event.beta - betaOffset;
+
             const alpha = THREE.MathUtils.degToRad(alphaRelativo); 
-            const beta = THREE.MathUtils.degToRad(event.beta);   
+            const beta = THREE.MathUtils.degToRad(betaRelativo);   
             const gamma = THREE.MathUtils.degToRad(event.gamma);  
 
             deviceRotation.set(beta, alpha, -gamma, 'YXZ');
@@ -223,6 +232,9 @@
         function animate() {
             requestAnimationFrame(animate);
 
+            // Bloqueo absoluto de posición: La cámara no sufre derivas espaciales, solo rotación pura
+            camera.position.set(0, 1.6, 0);
+
             camera.quaternion.setFromEuler(deviceRotation);
 
             renderer.render(scene, camera);
@@ -230,4 +242,3 @@
     </script>
 </body>
 </html>
-	
