@@ -308,13 +308,12 @@
             gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
             gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-	    // DESPUÉS (matriz directa - rotación correcta):
-	    const viewMat = new THREE.Matrix4().fromArray(view.transform.matrix);
-	    const tempPos = new THREE.Vector3();
-	    const quat = new THREE.Quaternion();
-	    const tempScale = new THREE.Vector3();
+            const viewMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
+            const tempPos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const tempScale = new THREE.Vector3();
             viewMat.decompose(tempPos, quat, tempScale);
-		
+
             camera.position.set(0, 1.6, 0);
             camera.quaternion.copy(quat);
             camera.updateMatrix();
@@ -330,3 +329,4 @@
     </script>
 </body>
 </html>
+
