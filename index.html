@@ -93,7 +93,6 @@
         let camera, scene, renderer;
         let objetoManipulable;
         
-        // Variables para el filtrado de rotación por giroscopio
         let eulerObjetivo = new THREE.Euler(0, 0, 0, 'YXZ');
         let eulerActual = new THREE.Euler(0, 0, 0, 'YXZ');
         
@@ -146,26 +145,25 @@
 
             animate();
 
-            // CORRECCIÓN DE RUTA ABSOLUTA INTERNA: Usamos el prefijo ./ para buscar desde la raíz del server
+            // AJUSTE DE RUTA EXACTA A TU REPOSITORIO DE THREE.JS EN GITHUB: textures/textura.png
             const textureLoader = new THREE.TextureLoader();
-            textureLoader.load('./media/textures/textura.png', (texture) => {
+            textureLoader.load('textures/textura.png', (texture) => {
                 texture.mapping = THREE.EquirectangularReflectionMapping;
                 texture.colorSpace = THREE.SRGBColorSpace;
                 
                 const panoramaGeo = new THREE.SphereGeometry(500, 60, 40);
                 panoramaGeo.scale(-1, 1, 1); 
 
-                const panoramaMat = new THREE.MeshBasicMaterial({ map: texture });
-                const panoramaMesh = new THREE.Mesh(panoramaGeo, panoramaMat);
+                const panoramaMesh = new THREE.Mesh(panoramaGeo, new THREE.MeshBasicMaterial({ map: texture }));
                 scene.add(panoramaMesh);
             }, undefined, (err) => {
-                console.warn("Fallo en la carga de la textura. Revisar la ruta en la raíz del servidor web.");
+                console.warn("No se pudo cargar textures/textura.png de la raíz.");
                 scene.background = new THREE.Color(0x111122);
             });
 
-            // CORRECCIÓN DE RUTA ABSOLUTA INTERNA: Acceso directo al archivo ciudad.gltf de tu raíz en GitHub
+            // AJUSTE DE RUTA EXACTA A TU REPOSITORIO DE THREE.JS EN GITHUB: models/gltf/camp/ciudad.gltf
             const loader = new GLTFLoader();
-            loader.load('./media/gltf/camp/ciudad.gltf', (gltf) => {
+            loader.load('models/gltf/camp/ciudad.gltf', (gltf) => {
                 objetoManipulable = gltf.scene;
                 objetoManipulable.position.set(0, -1.0, 0);
                 objetoManipulable.scale.set(1.0, 1.0, 1.0);
@@ -181,7 +179,7 @@
 
                 scene.add(objetoManipulable);
             }, undefined, (error) => {
-                console.warn("Fallo en la carga del modelo GLTF. Cargando cubos geométricos alternativos de render.");
+                console.warn("No se pudo cargar models/gltf/camp/ciudad.gltf de la raíz.");
                 objetoManipulable = new THREE.Group();
                 const boxGeom = new THREE.BoxGeometry(2, 5, 2);
                 const boxMat = new THREE.MeshStandardMaterial({ color: 0x445577 });
@@ -214,7 +212,6 @@
             const betaRad  = THREE.MathUtils.degToRad(event.beta) - (Math.PI / 2);   
             const gammaRad = 0; 
 
-            // Asignar al Euler objetivo para procesar el filtro de suavizado en el bucle principal
             eulerObjetivo.set(betaRad, alphaRad, gammaRad, 'YXZ');
         }
 
@@ -233,10 +230,8 @@
             camera.position.set(0, 1.6, 0);
 
             if (calibrado) {
-                // FILTRO DE INTERPOLACIÓN LINEAL (LERP): Filtra el ruido y el pulso, estabilizando la escena al 100%
                 eulerActual.x += (eulerObjetivo.x - eulerActual.x) * 0.1;
                 eulerActual.y += (eulerObjetivo.y - eulerActual.y) * 0.1;
-                
                 camera.rotation.copy(eulerActual);
             }
 
@@ -245,4 +240,3 @@
     </script>
 </body>
 </html>
-
