@@ -309,19 +309,21 @@
 		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
 		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-		// Matriz directa del viewer (no inverse)
+		// Extraer yaw de la matriz directa (funciona bien)
 		const mat = new THREE.Matrix4().fromArray(view.transform.matrix);
-		const pos = new THREE.Vector3();
-		const quat = new THREE.Quaternion();
-		const scale = new THREE.Vector3();
-		mat.decompose(pos, quat, scale);
+		const p1 = new THREE.Vector3(), q1 = new THREE.Quaternion(), s1 = new THREE.Vector3();
+		mat.decompose(p1, q1, s1);
+		const e1 = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
 
-		// CORRECCION: Invertir solo el pitch para alinear con Three.js
-		const euler = new THREE.Euler().setFromQuaternion(quat, 'YXZ');
-		euler.x = -euler.x;
-		camera.quaternion.setFromEuler(euler);
+		// Extraer pitch de la matriz inversa (pitch correcto)
+		const invMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
+		const p2 = new THREE.Vector3(), q2 = new THREE.Quaternion(), s2 = new THREE.Vector3();
+		invMat.decompose(p2, q2, s2);
+		const e2 = new THREE.Euler().setFromQuaternion(q2, 'YXZ');
 
-		// Posicion fija (no caminar, solo girar)
+		// Combinar: yaw del directo, pitch del inverso, roll del directo
+		camera.rotation.set(e2.x, e1.y, e1.z, 'YXZ');
+
 		camera.position.set(0, 1.6, 0);
 		camera.updateMatrix();
 		camera.updateMatrixWorld();
