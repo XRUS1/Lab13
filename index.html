@@ -53,8 +53,7 @@
         }
         #info {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            top: 10px; left: 10px;
             color: #fff;
             background: rgba(0,0,0,0.5);
             padding: 8px 12px;
@@ -62,6 +61,7 @@
             font-size: 12px;
             z-index: 5;
             display: none;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -71,8 +71,9 @@
         <p id="indicaciones">
             Este ejemplo demuestra el uso de un espacio de referencia de "piso local"
             para proporcionar seguimiento a escala de la habitacion.
+            Monoscopico: solo gira el telefono, la posicion esta bloqueada.
         </p>
-        <button id="btn-entrar">INICIAR EXPERIENCIA VR</button>
+        <button id="btn-entrar">INICIAR EXPERIENCIA</button>
     </div>
     <div id="info">Cargando...</div>
 
@@ -90,54 +91,34 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         // ==================== VARIABLES GLOBALES ====================
-        let renderer, scene, camera;
+        let camera, scene, renderer;
+        let gl = null;
         let xrSession = null;
         let xrRefSpace = null;
-        let gl = null;
+        let xrGlLayer = null;
 
         let modeloEscena = null;
-        let skyboxMesh = null;
         let boundsLine = null;
 
         const btnEntrar = document.getElementById('btn-entrar');
         const overlayInicio = document.getElementById('overlay-inicio');
         const infoDiv = document.getElementById('info');
 
-        // ==================== INICIALIZACION ====================
-        btnEntrar.addEventListener('click', async () => {
-            if (!navigator.xr) {
-                alert('WebXR no esta soportado en este navegador.');
-                return;
-            }
-            try {
-                const supported = await navigator.xr.isSessionSupported('immersive-vr');
-                if (!supported) {
-                    alert('immersive-vr no esta soportado en este dispositivo.');
-                    return;
-                }
-                overlayInicio.style.display = 'none';
-                infoDiv.style.display = 'block';
-                infoDiv.textContent = 'Iniciando sesion VR...';
-                await iniciarSesionVR();
-            } catch (err) {
-                console.error(err);
-                alert('Error al iniciar VR: ' + err.message);
-            }
-        });
-
+        // ==================== INICIALIZACION THREE.JS ====================
         function initThree() {
             scene = new THREE.Scene();
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            // Posicion fija: altura de ojos, sin desplazamiento lateral
+            camera.position.set(0, 1.6, 0);
 
-            const canvas = document.createElement('canvas');
-            document.body.appendChild(canvas);
-
-            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            // alpha: false para tapar la camara real del AR con contenido opaco
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
-            renderer.xr.enabled = true;
+            // NO habilitamos renderer.xr: manejamos la sesion manualmente
+            document.body.appendChild(renderer.domElement);
 
             gl = renderer.getContext();
 
@@ -150,7 +131,7 @@
             dirLight.position.set(10, 25, 10);
             scene.add(dirLight);
 
-            // Skybox equirectangular
+            // Skybox equirectangular opaco (tapa la camara real del AR)
             const texLoader = new THREE.TextureLoader();
             texLoader.load('textures/textura.png',
                 (texture) => {
@@ -159,12 +140,17 @@
                     scene.background = texture;
                     scene.environment = texture;
 
-                    // Esfera invertida como skybox visual (equivalente al SkyboxNode original)
+                    // Esfera invertida como skybox visual adicional
                     const geo = new THREE.SphereGeometry(500, 60, 40);
                     geo.scale(-1, 1, 1);
-                    const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
-                    skyboxMesh = new THREE.Mesh(geo, mat);
-                    scene.add(skyboxMesh);
+                    const mat = new THREE.MeshBasicMaterial({
+                        map: texture,
+                        side: THREE.BackSide,
+                        depthWrite: false
+                    });
+                    const skyMesh = new THREE.Mesh(geo, mat);
+                    skyMesh.renderOrder = -1000;
+                    scene.add(skyMesh);
                 },
                 undefined,
                 (err) => {
@@ -173,7 +159,7 @@
                 }
             );
 
-            // Modelo GLTF
+            // Modelo GLTF anclado al piso (Y=0)
             const loader = new GLTFLoader();
             loader.load('models/gltf/camp/ciudad.gltf',
                 (gltf) => {
@@ -187,13 +173,12 @@
                         }
                     });
                     scene.add(modeloEscena);
-                    infoDiv.textContent = 'Modelo cargado. Muevete para explorar.';
+                    infoDiv.textContent = 'Modelo cargado. Gira el telefono para explorar.';
                 },
                 undefined,
                 (error) => {
                     console.warn('No se pudo cargar models/gltf/camp/ciudad.gltf', error);
-                    infoDiv.textContent = 'Error al cargar modelo. Usando geometria de respaldo.';
-                    // Fallback: edificios simples
+                    infoDiv.textContent = 'Error modelo. Usando geometria de respaldo.';
                     const grupo = new THREE.Group();
                     const boxGeom = new THREE.BoxGeometry(2, 5, 2);
                     const boxMat = new THREE.MeshStandardMaterial({ color: 0x445577 });
@@ -220,44 +205,8 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // ==================== WEBXR SESSION ====================
-        async function iniciarSesionVR() {
-            initThree();
-
-            try {
-                xrSession = await navigator.xr.requestSession('immersive-vr', {
-                    requiredFeatures: ['local-floor'],
-                    optionalFeatures: ['bounded-floor']
-                });
-
-                infoDiv.textContent = 'Sesion VR iniciada. Solicitando espacio de referencia...';
-
-                const baseLayer = new XRWebGLLayer(xrSession, gl);
-                xrSession.updateRenderState({ baseLayer: baseLayer });
-
-                // Intentar bounded-floor primero, fallback a local-floor
-                let refSpace;
-                try {
-                    refSpace = await xrSession.requestReferenceSpace('bounded-floor');
-                    infoDiv.textContent = 'Espacio bounded-floor activo.';
-                    dibujarLimites(refSpace);
-                } catch (e) {
-                    console.log('Falling back to local-floor reference space');
-                    infoDiv.textContent = 'Usando local-floor (sin limites de habitacion).';
-                    refSpace = await xrSession.requestReferenceSpace('local-floor');
-                }
-
-                xrRefSpace = refSpace;
-                xrSession.requestAnimationFrame(onXRFrame);
-
-            } catch (err) {
-                console.error(err);
-                infoDiv.textContent = 'Error: ' + err.message;
-            }
-        }
-
+        // ==================== BOUNDS DE HABITACION ====================
         function dibujarLimites(refSpace) {
-            // Dibujar los bounds de la habitacion como lineas (equivalente a BoundsRenderer)
             if (!refSpace.boundsGeometry || refSpace.boundsGeometry.length === 0) return;
 
             const puntos = [];
@@ -270,38 +219,103 @@
             }
 
             const lineGeo = new THREE.BufferGeometry().setFromPoints(puntos);
-            const lineMat = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
             boundsLine = new THREE.LineSegments(lineGeo, lineMat);
             scene.add(boundsLine);
+
+            refSpace.onreset = (evt) => {
+                if (boundsLine) scene.remove(boundsLine);
+                dibujarLimites(evt.referenceSpace);
+            };
         }
 
-        // ==================== RENDER LOOP ====================
+        // ==================== SESION WEBXR MANUAL ====================
+        async function iniciarExperiencia() {
+            if (!navigator.xr) {
+                alert('WebXR no esta soportado en este navegador.');
+                return;
+            }
+
+            try {
+                const supported = await navigator.xr.isSessionSupported('immersive-ar');
+                if (!supported) {
+                    alert('immersive-ar no esta soportado. Usa Chrome en Android con ARCore.');
+                    return;
+                }
+
+                overlayInicio.style.display = 'none';
+                infoDiv.style.display = 'block';
+                infoDiv.textContent = 'Iniciando ARCore...';
+
+                initThree();
+
+                xrSession = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['local-floor'],
+                    optionalFeatures: ['bounded-floor']
+                });
+
+                xrGlLayer = new XRWebGLLayer(xrSession, gl);
+                xrSession.updateRenderState({ baseLayer: xrGlLayer });
+
+                // Intentar bounded-floor primero, fallback a local-floor (igual que el original)
+                try {
+                    const boundedRefSpace = await xrSession.requestReferenceSpace('bounded-floor');
+                    xrRefSpace = boundedRefSpace;
+                    infoDiv.textContent = 'Espacio delimitado detectado.';
+                    dibujarLimites(boundedRefSpace);
+                } catch (e) {
+                    console.log('Falling back to local-floor reference space');
+                    infoDiv.textContent = 'Usando local-floor (sin limites de habitacion).';
+                    xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+                }
+
+                xrSession.requestAnimationFrame(onXRFrame);
+
+            } catch (err) {
+                console.error(err);
+                infoDiv.textContent = 'Error: ' + err.message;
+                alert('Error al iniciar: ' + err.message);
+            }
+        }
+
+        // ==================== LOOP DE RENDER MANUAL ====================
         function onXRFrame(time, frame) {
             const session = frame.session;
             session.requestAnimationFrame(onXRFrame);
 
             const pose = frame.getViewerPose(xrRefSpace);
-            if (!pose) return;
+            if (!pose || pose.views.length === 0) return;
 
-            const layer = session.renderState.baseLayer;
-            const glFrame = renderer.getContext();
+            // En AR monoscopico hay exactamente 1 vista
+            const view = pose.views[0];
+            const viewport = xrGlLayer.getViewport(view);
 
-            glFrame.bindFramebuffer(glFrame.FRAMEBUFFER, layer.framebuffer);
+            // Enlazar framebuffer de WebXR y establecer viewport
+            gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
+            gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-            for (const view of pose.views) {
-                const viewport = layer.getViewport(view);
-                glFrame.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+            // Extraer SOLO la rotacion del viewer pose.
+            // La posicion se ignora intencionalmente para evitar que el usuario "camine".
+            const viewMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
+            const tempPos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const tempScale = new THREE.Vector3();
+            viewMat.decompose(tempPos, quat, tempScale);
 
-                const camMatrix = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
-                camera.projectionMatrix.fromArray(view.projectionMatrix);
-                camera.matrix.copy(camMatrix);
-                camera.matrix.decompose(camera.position, camera.quaternion, camera.scale);
+            // Forzar posicion fija: origen del piso, altura de ojos 1.6m
+            camera.position.set(0, 1.6, 0);
+            camera.quaternion.copy(quat);
+            camera.updateMatrix();
+            camera.updateMatrixWorld();
 
-                renderer.state.reset();
-                renderer.render(scene, camera);
-            }
+            // Proyeccion desde WebXR
+            camera.projectionMatrix.fromArray(view.projectionMatrix);
+            camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+
+            renderer.render(scene, camera);
         }
 
+        btnEntrar.addEventListener('click', iniciarExperiencia);
     </script>
 </body>
 </html>
