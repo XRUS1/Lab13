@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Three.js - Paisaje 360 y Ciudad 3D Móvil</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <link type="text/css" rel="stylesheet" href="main.css">
+    <style>
+        body {
+            touch-action: none;
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: sans-serif;
+        }
+        #canvas3d {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #overlay-inicio {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(10, 10, 15, 0.9);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        #btn-conectar {
+            background-color: #107c10;
+            color: white;
+            border: none;
+            padding: 15px 35px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            transition: background-color 0.2s;
+            margin-top: 20px;
+        }
+        #btn-conectar:active {
+            background-color: #0b520b;
+        }
+        #indicaciones {
+            font-size: 14px;
+            color: #aaa;
+            max-width: 300px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div id="overlay-inicio">
+        <h2>Proyecto Laboratorio IHC</h2>
+        <p id="indicaciones">Coloca tu teléfono en una superficie plana o sostenlo firme apuntando al frente, luego presiona el botón inferior para sincronizar los sensores.</p>
+        <button id="btn-conectar">CALIBRAR Y EMPEZAR</button>
+    </div>
+
+    <canvas id="canvas3d"></canvas>
+
+    <script async src="https://unpkg.com"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./build/three.module.js",
+                "three/addons/": "./jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        let camera, scene, renderer;
+        let objetoManipulable;
+        let deviceRotation = new THREE.Euler(0, 0, 0, 'YXZ');
+
+        let alphaOffset = 0;
+        let calibrado = false;
+
+        const btnConectar = document.getElementById('btn-conectar');
+        const overlayInicio = document.getElementById('overlay-inicio');
+
+        btnConectar.addEventListener('click', () => {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            activarSensores();
+                        } else {
+                            alert('Permiso de sensores denegado.');
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                activarSensores();
+            }
+        });
+
+        function activarSensores() {
+            calibrado = false;
+            window.addEventListener('deviceorientation', onDeviceOrientation);
+            overlayInicio.style.display = 'none';
+            init();
+        }
+
+        function init() {
+            const canvas = document.getElementById('canvas3d');
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.6, 0);
+
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight.position.set(10, 20, 10);
+            scene.add(directionalLight);
+
+            const textureLoader = new THREE.TextureLoader();
+            textureLoader.load('./textures/textura.png', (texture) => {
+                texture.mapping = THREE.EquirectangularReflectionMapping;
+                texture.colorSpace = THREE.SRGBColorSpace;
+                
+                const panoramaGeo = new THREE.SphereGeometry(500, 60, 40);
+                panoramaGeo.scale(-1, 1, 1); 
+
+                const panoramaMat = new THREE.MeshBasicMaterial({ map: texture });
+                const panoramaMesh = new THREE.Mesh(panoramaGeo, panoramaMat);
+                scene.add(panoramaMesh);
+            }, undefined, (err) => {
+                console.warn("No se encontró textura.png. Usando un color de fondo degradado.");
+                scene.background = new THREE.Color(0x111122);
+            });
+
+            const floorGeometry = new THREE.PlaneGeometry(100, 100);
+            const floorMaterial = new THREE.MeshStandardMaterial({
+                color: 0x050508,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = 0; 
+            scene.add(floor);
+
+            const gridHelper = new THREE.GridHelper(100, 50, 0x00ff00, 0x222222);
+            gridHelper.position.y = 0.01;
+            scene.add(gridHelper);
+
+            const loader = new GLTFLoader();
+            loader.load('./models/gltf/camp/ciudad.gltf', (gltf) => {
+                objetoManipulable = gltf.scene;
+                objetoManipulable.position.set(0, 0, 0); 
+                objetoManipulable.scale.set(1.0, 1.0, 1.0);
+                scene.add(objetoManipulable);
+            }, undefined, (error) => {
+                console.warn("No se encontró ciudad.gltf. Creando una cuadrícula de cubos como fallback.");
+                objetoManipulable = new THREE.Group();
+                const boxGeom = new THREE.BoxGeometry(2, 5, 2);
+                const boxMat = new THREE.MeshStandardMaterial({ color: 0x445577 });
+                for(let x = -20; x <= 20; x += 8) {
+                    for(let z = -20; z <= 20; z += 8) {
+                        if(x === 0 && z === 0) continue; 
+                        const edificio = new THREE.Mesh(boxGeom, boxMat);
+                        edificio.position.set(x, 2.5, z);
+                        objetoManipulable.add(edificio);
+                    }
+                }
+                scene.add(objetoManipulable);
+            });
+
+            window.addEventListener('resize', onWindowResize);
+
+            animate();
+        }
+
+        function onDeviceOrientation(event) {
+            if (event.alpha === null) return;
+            
+            if (!calibrado) {
+                alphaOffset = event.alpha;
+                calibrado = true;
+            }
+
+            let alphaRelativo = event.alpha - alphaOffset;
+            if (alphaRelativo < 0) alphaRelativo += 360;
+
+            const alpha = THREE.MathUtils.degToRad(alphaRelativo); 
+            const beta = THREE.MathUtils.degToRad(event.beta);   
+            const gamma = THREE.MathUtils.degToRad(event.gamma);  
+
+            deviceRotation.set(beta, alpha, -gamma, 'YXZ');
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            camera.quaternion.setFromEuler(deviceRotation);
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
+	
