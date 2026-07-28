@@ -319,8 +319,10 @@ function onXRFrame(time, frame) {
     camera.projectionMatrix.fromArray(view.projectionMatrix);
     camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
     // --- CORRECCIÓN DIRECTA DEL PITCH INVERTIDO ---
-    // En lugar de romper la matriz, le decimos a la cámara que invierta su rotación local en X
-    camera.rotation.x = -camera.rotation.x;
+    // Invertimos las componentes de la matriz que controlan el cabeceo (Pitch)
+    camWorldMat.elements[1] = -camWorldMat.elements[1];
+    camWorldMat.elements[5] = -camWorldMat.elements[5];
+    camWorldMat.elements[9] = -camWorldMat.elements[9];
     renderer.render(scene, camera);
 }
 
