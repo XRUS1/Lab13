@@ -27,13 +27,15 @@
     // ==========================================
     const CAMERA_HEIGHT = 1.6;
     const CYLINDER_RADIUS = 60;
-    const CYLINDER_HEIGHT = 40;
+    const CYLINDER_HEIGHT = 80; // Aumentado para cubrir campo vertical
     const SMOOTH_FACTOR = 0.08;
+    const PITCH_LIMIT = Math.PI / 2.2; // Limite para evitar ver los polos del cilindro
 
     // ==========================================
     // ESCENA, CAMARA, RENDERER
     // ==========================================
     const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB); // Cielo azul, nunca negro
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -60,20 +62,29 @@
     scene.add(dirLight);
 
     // ==========================================
-    // CILINDRO ENVOLVENTE (BackSide)
+    // CILINDRO ENVOLVENTE (BackSide, cerrado)
     // ==========================================
     const texLoader = new THREE.TextureLoader();
-    const panoTexture = texLoader.load('textures/textura.png');
+    const panoTexture = texLoader.load(
+      'textures/textura.png',
+      undefined,
+      undefined,
+      (err) => {
+        console.warn('Error cargando textura:', err);
+      }
+    );
     panoTexture.colorSpace = THREE.SRGBColorSpace;
     panoTexture.wrapS = THREE.RepeatWrapping;
     panoTexture.wrapT = THREE.ClampToEdgeWrapping;
 
+    // openEnded: false = con tapas arriba y abajo
     const cylinderGeo = new THREE.CylinderGeometry(
-      CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, true
+      CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, false
     );
     const cylinderMat = new THREE.MeshBasicMaterial({
       map: panoTexture,
-      side: THREE.BackSide
+      side: THREE.BackSide,
+      color: 0x888888 // Fallback visible si la textura no carga
     });
     const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
     cylinder.position.y = CAMERA_HEIGHT;
@@ -87,14 +98,13 @@
       'models/gltf/camp/ciudad.gltf',
       (gltf) => {
         const model = gltf.scene;
-        // Centrar el modelo en el origen horizontalmente
         const box = new THREE.Box3().setFromObject(model);
         const center = box.getCenter(new THREE.Vector3());
         model.position.x = -center.x;
         model.position.z = -center.z;
-        // Mantener la base en Y = 0
         model.position.y = -box.min.y;
         scene.add(model);
+        console.log('Modelo cargado correctamente');
       },
       undefined,
       (error) => {
@@ -103,7 +113,7 @@
     );
 
     // ==========================================
-    // GIROSCOPIO (DeviceOrientation)
+    // GIROSCOPIO
     // ==========================================
     let isOrientationActive = false;
     let initialAlpha = null;
@@ -123,10 +133,15 @@
         initialAlpha = alpha;
       }
 
-      // Yaw relativo
+      // Yaw relativo al primer toque
       let yaw = alpha - initialAlpha;
-      // Pitch invertido para que al inclinar hacia arriba se vea el cielo
+
+      // Pitch invertido: inclinar arriba = ver cielo, abajo = ver suelo
       let pitch = -beta;
+
+      // Limitar pitch para no ver los polos del cilindro
+      pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+
       // Roll
       let roll = -gamma;
 
@@ -134,7 +149,7 @@
       targetQ.setFromEuler(deviceEuler);
     }
 
-    function requestOrientationPermission() {
+    function activateGyroscope() {
       const info = document.getElementById('info');
 
       if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -146,10 +161,13 @@
               isOrientationActive = true;
               info.style.display = 'none';
             } else {
-              info.textContent = 'Permiso de giroscopio denegado';
+              info.textContent = 'Permiso denegado';
             }
           })
-          .catch(console.error);
+          .catch((err) => {
+            console.error(err);
+            info.textContent = 'Error activando giroscopio';
+          });
       } else {
         window.addEventListener('deviceorientation', handleOrientation);
         isOrientationActive = true;
@@ -157,17 +175,19 @@
       }
     }
 
-    document.body.addEventListener('click', () => {
+    // Activar con touch o click (para cubrir todos los moviles)
+    function onFirstInteraction() {
       if (!isOrientationActive) {
-        requestOrientationPermission();
+        activateGyroscope();
       }
-    }, {once: true});
+    }
+
+    document.body.addEventListener('touchstart', onFirstInteraction, {once: true});
+    document.body.addEventListener('click', onFirstInteraction, {once: true});
 
     // ==========================================
     // BUCLE DE ANIMACION
     // ==========================================
-    const clock = new THREE.Clock();
-
     function animate() {
       requestAnimationFrame(animate);
 
@@ -192,5 +212,3 @@
   </script>
 </body>
 </html>
-	
-	
