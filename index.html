@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="main.css">
 </head>
 <body>
-  <div id="info">Toca la pantalla para activar el giroscopio</div>
+  <div id="info">Toca para activar</div>
   
   <script type="importmap">
   {
@@ -22,27 +22,15 @@
     import * as THREE from 'three';
     import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
-    // ==========================================
-    // CONFIGURACION
-    // ==========================================
     const CAMERA_HEIGHT = 1.6;
     const CYLINDER_RADIUS = 60;
     const CYLINDER_HEIGHT = 200;
-    const SMOOTH_FACTOR = 0.08;
-    const PITCH_LIMIT = THREE.MathUtils.degToRad(75);
+    const SMOOTH = 0.08;
 
-    // ==========================================
-    // ESCENA, CAMARA, RENDERER
-    // ==========================================
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
 
-    const camera = new THREE.PerspectiveCamera(
-      60,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000
-    );
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, CAMERA_HEIGHT, 0);
 
     const renderer = new THREE.WebGLRenderer({antialias: true});
@@ -51,189 +39,93 @@
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.body.appendChild(renderer.domElement);
 
-    // ==========================================
-    // LUCES
-    // ==========================================
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 1.0);
+    dl.position.set(10, 20, 10);
+    scene.add(dl);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    dirLight.position.set(10, 20, 10);
-    scene.add(dirLight);
+    // Cilindro texturizado, sin tapas, muy alto
+    const tex = new THREE.TextureLoader().load('textures/textura.png');
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
 
-    // ==========================================
-    // CILINDRO ENVOLVENTE
-    // ==========================================
-    const texLoader = new THREE.TextureLoader();
-    const panoTexture = texLoader.load(
-      'textures/textura.png',
-      undefined,
-      undefined,
-      (err) => console.warn('Error textura:', err)
+    const cyl = new THREE.Mesh(
+      new THREE.CylinderGeometry(CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, true),
+      new THREE.MeshBasicMaterial({map: tex, side: THREE.BackSide})
     );
-    panoTexture.colorSpace = THREE.SRGBColorSpace;
-    panoTexture.wrapS = THREE.RepeatWrapping;
-    panoTexture.wrapT = THREE.ClampToEdgeWrapping;
+    cyl.position.y = CAMERA_HEIGHT;
+    scene.add(cyl);
 
-    const cylinderGeo = new THREE.CylinderGeometry(
-      CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, true
+    // Suelo de respaldo
+    const gnd = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.MeshStandardMaterial({color: 0x3d5c2d})
     );
-    const cylinderMat = new THREE.MeshBasicMaterial({
-      map: panoTexture,
-      side: THREE.BackSide,
-      color: 0x888888
+    gnd.rotation.x = -Math.PI / 2;
+    scene.add(gnd);
+
+    // Modelo
+    new GLTFLoader().load('models/gltf/camp/ciudad.gltf', (gltf) => {
+      const m = gltf.scene;
+      const b = new THREE.Box3().setFromObject(m);
+      const c = b.getCenter(new THREE.Vector3());
+      m.position.set(-c.x, -b.min.y, -c.z);
+      scene.add(m);
     });
-    const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
-    cylinder.position.y = CAMERA_HEIGHT;
-    scene.add(cylinder);
 
-    // ==========================================
-    // SUELO DE RESPALDO
-    // ==========================================
-    const groundGeo = new THREE.PlaneGeometry(200, 200);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3d5c2d });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    scene.add(ground);
+    // Giroscopio
+    let active = false;
+    let initQ = null;
+    const currQ = new THREE.Quaternion();
+    const targQ = new THREE.Quaternion();
 
-    // ==========================================
-    // MODELO GLTF
-    // ==========================================
-    const loader = new GLTFLoader();
-    loader.load(
-      'models/gltf/camp/ciudad.gltf',
-      (gltf) => {
-        const model = gltf.scene;
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        model.position.x = -center.x;
-        model.position.z = -center.z;
-        model.position.y = -box.min.y;
-        scene.add(model);
-      },
-      undefined,
-      (error) => console.error('Error modelo:', error)
-    );
+    // Correccion: telefono vertical = mirar al frente en Three.js
+    const fixQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2, 0, 0, 'XYZ'));
 
-    // ==========================================
-    // GIROSCOPIO — RELATIVE ORIENTATION SENSOR (moderno)
-    // ==========================================
-    let isOrientationActive = false;
-    let initialQ = null; // Cuaternión inicial para calibrar "frente"
-    const currentQ = new THREE.Quaternion();
-    const targetQ = new THREE.Quaternion();
-    const sensorQ = new THREE.Quaternion();
-
-    // Corrección: alinear eje del dispositivo con eje de la cámara
-    // En portrait, el dispositivo mira hacia +Z, la cámara de Three.js mira hacia -Z
-    // Rotamos -90° sobre X para que "vertical" = "mirar al frente"
-    const deviceToCamera = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ')
-    );
-
-    async function initSensor() {
-      const info = document.getElementById('info');
-
-      // OPCION 1: RelativeOrientationSensor (mejor, más estable)
-      if ('RelativeOrientationSensor' in window) {
-        try {
-          const sensor = new RelativeOrientationSensor({ frequency: 60 });
-          
-          sensor.addEventListener('reading', () => {
-            // sensor.quaternion = [x, y, z, w]
-            sensorQ.set(
-              sensor.quaternion[0],
-              sensor.quaternion[1],
-              sensor.quaternion[2],
-              sensor.quaternion[3]
-            );
-
-            // Aplicar corrección de eje
-            const orientedQ = new THREE.Quaternion().multiplyQuaternions(deviceToCamera, sensorQ);
-
-            // Calibrar: la primera lectura define "frente"
-            if (initialQ === null) {
-              initialQ = orientedQ.clone().invert();
-            }
-
-            // Aplicar offset inicial: target = initialQ * orientedQ
-            targetQ.multiplyQuaternions(initialQ, orientedQ);
-          });
-
-          await sensor.start();
-          isOrientationActive = true;
-          info.style.display = 'none';
-          return;
-        } catch (e) {
-          console.log('RelativeOrientationSensor falló, usando fallback:', e);
-        }
-      }
-
-      // OPCION 2: Fallback deviceorientation
-      window.addEventListener('deviceorientation', handleDeviceOrientation);
-      isOrientationActive = true;
-      info.style.display = 'none';
+    function sensorToQuaternion(a, b, g) {
+      const r = Math.PI / 180;
+      const aa = (a || 0) * r;
+      const bb = (b || 0) * r;
+      const gg = (g || 0) * r;
+      const c1 = Math.cos(aa/2), c2 = Math.cos(bb/2), c3 = Math.cos(gg/2);
+      const s1 = Math.sin(aa/2), s2 = Math.sin(bb/2), s3 = Math.sin(gg/2);
+      // W3C: Z * Y * X
+      return new THREE.Quaternion(
+        s1*c2*c3 - c1*s2*s3,
+        c1*s2*c3 + s1*c2*s3,
+        c1*c2*s3 + s1*s2*c3,
+        c1*c2*c3 - s1*s2*s3
+      );
     }
 
-    // ==========================================
-    // FALLBACK: deviceorientation (fórmula corregida)
-    // ==========================================
-    function handleDeviceOrientation(event) {
-      // IMPORTANTE: usar !== null para que 0 no sea tratado como false
-      const alpha = event.alpha !== null ? THREE.MathUtils.degToRad(event.alpha) : 0;
-      const beta  = event.beta  !== null ? THREE.MathUtils.degToRad(event.beta)  : 0;
-      const gamma = event.gamma !== null ? THREE.MathUtils.degToRad(event.gamma) : 0;
-
-      // Fórmula W3C: cuaternión desde alpha(Z), beta(X), gamma(Y)
-      const c1 = Math.cos(alpha / 2), c2 = Math.cos(beta / 2), c3 = Math.cos(gamma / 2);
-      const s1 = Math.sin(alpha / 2), s2 = Math.sin(beta / 2), s3 = Math.sin(gamma / 2);
-
-      const q = new THREE.Quaternion();
-      q.x = s1 * c2 * c3 - c1 * s2 * s3;
-      q.y = c1 * s2 * c3 + s1 * c2 * s3;
-      q.z = c1 * c2 * s3 + s1 * s2 * c3;
-      q.w = c1 * c2 * c3 - s1 * s2 * s3;
-
-      // Aplicar corrección de eje
-      const orientedQ = new THREE.Quaternion().multiplyQuaternions(deviceToCamera, q);
-
-      // Calibrar frente
-      if (initialQ === null) {
-        initialQ = orientedQ.clone().invert();
-      }
-
-      targetQ.multiplyQuaternions(initialQ, orientedQ);
+    function onOrient(e) {
+      if (!active) return;
+      const q = sensorToQuaternion(e.alpha, e.beta, e.gamma);
+      q.premultiply(fixQ); // Alinear ejes telefono -> Three.js
+      if (initQ === null) initQ = q.clone().invert();
+      targQ.multiplyQuaternions(q, initQ); // Relativo a posicion inicial
     }
 
-    // ==========================================
-    // ACTIVACION
-    // ==========================================
-    function onFirstInteraction() {
-      if (!isOrientationActive) {
-        initSensor();
-      }
+    function start() {
+      if (active) return;
+      window.addEventListener('deviceorientation', onOrient);
+      active = true;
+      document.getElementById('info').style.display = 'none';
     }
 
-    document.body.addEventListener('touchstart', onFirstInteraction, {once: true});
-    document.body.addEventListener('click', onFirstInteraction, {once: true});
+    document.body.addEventListener('touchstart', start, {once: true});
+    document.body.addEventListener('click', start, {once: true});
 
-    // ==========================================
-    // BUCLE
-    // ==========================================
     function animate() {
       requestAnimationFrame(animate);
-
-      if (isOrientationActive) {
-        currentQ.slerp(targetQ, SMOOTH_FACTOR);
-        camera.quaternion.copy(currentQ);
+      if (active) {
+        currQ.slerp(targQ, SMOOTH);
+        camera.quaternion.copy(currQ);
       }
-
       renderer.render(scene, camera);
     }
 
-    // ==========================================
-    // RESPONSIVE
-    // ==========================================
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
