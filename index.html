@@ -297,36 +297,37 @@
             }
         }
 		
-function onXRFrame(time, frame) {
-    const session = frame.session;
-    session.requestAnimationFrame(onXRFrame);
-    const pose = frame.getViewerPose(xrRefSpace);
-    if (!pose || pose.views.length === 0) return;
-    const view = pose.views[0];
-    const viewport = xrGLLayer.getViewport(view);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, xrGLLayer.framebuffer);
-    gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-    // Tu código original intacto
-    const viewerMat = new THREE.Matrix4().fromArray(view.transform.matrix);
-    const rot = new THREE.Matrix4();
-    rot.extractRotation(viewerMat);
-    const pos = new THREE.Vector3(0, 1.6, 0);
-    const camWorldMat = new THREE.Matrix4().makeTranslation(pos.x, pos.y, pos.z);
-    camWorldMat.multiply(rot);
-    // --- CORRECCIÓN DIRECTA DEL PITCH INVERTIDO ---
-    // Invertimos las componentes de la matriz que controlan el cabeceo (Pitch)
-    // Se ejecuta AQUÍ para que la cámara copie el resultado modificado
-    camWorldMat.elements[1] = -camWorldMat.elements[1];
-    camWorldMat.elements[5] = -camWorldMat.elements[5];
-    camWorldMat.elements[9] = -camWorldMat.elements[9];
-	 camWorldMat.multiply(new THREE.Matrix4().makeRotationX(Math.PI));
-    camera.matrixWorldInverse.copy(camWorldMat).invert();
-    camera.projectionMatrix.fromArray(view.projectionMatrix);
-    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-    renderer.render(scene, camera);
-}
+	function onXRFrame(time, frame) {
+		const session = frame.session;
+		session.requestAnimationFrame(onXRFrame);
+		const pose = frame.getViewerPose(xrRefSpace);
+		if (!pose || pose.views.length === 0) return;
+		const view = pose.views[0];
+		const viewport = xrGLLayer.getViewport(view);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGLLayer.framebuffer);
+		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+		// Tu código original intacto
+		const viewerMat = new THREE.Matrix4().fromArray(view.transform.matrix);
+		const rot = new THREE.Matrix4();
+		rot.extractRotation(viewerMat);
+		const pos = new THREE.Vector3(0, 1.6, 0);
+		const camWorldMat = new THREE.Matrix4().makeTranslation(pos.x, pos.y, pos.z);
+		camWorldMat.multiply(rot);
+		// --- CORRECCIÓN DIRECTA DEL PITCH INVERTIDO ---
+		// Invertimos las componentes de la matriz que controlan el cabeceo (Pitch)
+		// Se ejecuta AQUÍ para que la cámara copie el resultado modificado
+		camWorldMat.multiply(new THREE.Matrix4().makeRotationX(Math.PI));
+		// Aplicar directamente a la cámara las matrices ya corregidas
+		camera.matrix.copy(camWorldMat);
+		camera.matrixWorld.copy(camWorldMat);                                
+		camera.matrixWorldInverse.copy(camWorldMat).invert();                
+		camera.projectionMatrix.fromArray(view.projectionMatrix);
+		camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+		renderer.render(scene, camera);
+	}
 		
         btnEntrar.addEventListener('click', iniciarExperiencia);
     </script>
 </body>
 </html>
+
