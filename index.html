@@ -120,9 +120,6 @@
 
             await gl.makeXRCompatible();
 
-            // ============================================
-            // AR PASSTHROUGH: alpha true para ver la camara real
-            // ============================================
             renderer = new THREE.WebGLRenderer({ 
                 canvas: canvas, 
                 context: gl,
@@ -134,6 +131,17 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
 
+            // ============================================
+            // AR PASSTHROUGH: No borrar el color buffer.
+            // ARCore ya dibujo la camara real en el framebuffer.
+            // Solo limpiamos el depth buffer para que Three.js
+            // respete la profundidad de los objetos 3D.
+            // ============================================
+            renderer.autoClear = false;
+
+            // Sin fondo: la camara real de ARCore es el fondo
+            scene.background = null;
+
             // Luces
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.5);
             hemiLight.position.set(0, 20, 0);
@@ -142,27 +150,6 @@
             const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
             dirLight.position.set(10, 25, 10);
             scene.add(dirLight);
-
-            // ============================================
-            // AR PASSTHROUGH: Sin skybox opaco, sin fondo.
-            // La camara real de ARCore es el fondo.
-            // ============================================
-            scene.background = null;
-
-            // Opcional: environment map para iluminacion IBL en objetos PBR
-            // (solo si quieres reflejos realistas en el modelo)
-            const texLoader = new THREE.TextureLoader();
-            texLoader.load('textures/textura.png',
-                (texture) => {
-                    texture.mapping = THREE.EquirectangularReflectionMapping;
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    scene.environment = texture;
-                },
-                undefined,
-                (err) => {
-                    console.warn('No se pudo cargar textures/textura.png para environment');
-                }
-            );
 
             // Modelo GLTF anclado al piso real (Y=0)
             const loader = new GLTFLoader();
@@ -293,18 +280,20 @@
             gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
             gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-            // ============================================
-            // AR PASSTHROUGH + POSICION LIBRE:
-            // Usar la view matrix de WebXR directamente.
-            // El usuario camina libremente; la camara se traslada
-            // y rota con el dispositivo fisicamente.
-            // ============================================
+            // Posicion y rotacion libres: view matrix directa de WebXR
             camera.matrixWorldInverse.fromArray(view.transform.inverse.matrix);
             camera.matrixWorld.copy(camera.matrixWorldInverse).invert();
             camera.matrix.copy(camera.matrixWorld);
 
             camera.projectionMatrix.fromArray(view.projectionMatrix);
             camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+
+            // ============================================
+            // AR PASSTHROUGH: Limpiar solo depth buffer.
+            // ARCore ya dibujo la camara real en el framebuffer.
+            // No tocamos el color para no borrar la sala.
+            // ============================================
+            gl.clear(gl.DEPTH_BUFFER_BIT);
 
             renderer.render(scene, camera);
         }
