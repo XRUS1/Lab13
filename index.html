@@ -91,10 +91,7 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         let camera, scene, renderer;
-        let gl = null;
-        let xrSession = null;
-        let xrRefSpace = null;
-        let xrGlLayer = null;
+        let worldGroup, skyMesh;
         let modeloEscena = null;
         let boundsLine = null;
 
@@ -102,44 +99,19 @@
         const overlayInicio = document.getElementById('overlay-inicio');
         const infoDiv = document.getElementById('info');
 
-        // ============================================
-        // CORRECCION: initThree es async para poder
-        // esperar a makeXRCompatible()
-        // ============================================
-        async function initThree() {
+        function initThree() {
             scene = new THREE.Scene();
+
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 1.6, 0);
 
-            const canvas = document.createElement('canvas');
-            document.body.appendChild(canvas);
-
-            gl = canvas.getContext('webgl2', { antialias: true }) 
-              || canvas.getContext('webgl', { antialias: true });
-
-            if (!gl) {
-                alert('WebGL no esta soportado en este dispositivo.');
-                throw new Error('WebGL no disponible');
-            }
-
-            // ============================================
-            // CORRECCION CLAVE: Marcar el contexto como
-            // XR-compatible de forma asincrona
-            // ============================================
-            await gl.makeXRCompatible();
-
-            renderer = new THREE.WebGLRenderer({ 
-                canvas: canvas, 
-                context: gl,
-                antialias: true, 
-                alpha: false 
-            });
-
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
+            renderer.xr.enabled = true; // WebXR nativo de Three.js
+            document.body.appendChild(renderer.domElement);
 
-            // Luces
+            // Luces (afuera del worldGroup, iluminan todo)
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.5);
             hemiLight.position.set(0, 20, 0);
             scene.add(hemiLight);
@@ -148,7 +120,7 @@
             dirLight.position.set(10, 25, 10);
             scene.add(dirLight);
 
-            // Skybox equirectangular opaco
+            // Skybox equirectangular (afuera del worldGroup, se reposiciona a la camara cada frame)
             const texLoader = new THREE.TextureLoader();
             texLoader.load('textures/textura.png',
                 (texture) => {
@@ -164,7 +136,7 @@
                         side: THREE.BackSide,
                         depthWrite: false
                     });
-                    const skyMesh = new THREE.Mesh(geo, mat);
+                    skyMesh = new THREE.Mesh(geo, mat);
                     skyMesh.renderOrder = -1000;
                     scene.add(skyMesh);
                 },
@@ -175,7 +147,12 @@
                 }
             );
 
-            // Modelo GLTF
+            // Grupo que contiene todo lo que debe quedar "fijo" en el origen
+            // Moveremos este grupo en sentido inverso a la traslacion del usuario
+            worldGroup = new THREE.Group();
+            scene.add(worldGroup);
+
+            // Modelo GLTF (dentro del worldGroup)
             const loader = new GLTFLoader();
             loader.load('models/gltf/camp/ciudad.gltf',
                 (gltf) => {
@@ -188,7 +165,7 @@
                             if (node.material.map) node.material.map.colorSpace = THREE.SRGBColorSpace;
                         }
                     });
-                    scene.add(modeloEscena);
+                    worldGroup.add(modeloEscena);
                     infoDiv.textContent = 'Modelo cargado. Gira el telefono para explorar.';
                 },
                 undefined,
@@ -207,7 +184,7 @@
                         }
                     }
                     modeloEscena = grupo;
-                    scene.add(modeloEscena);
+                    worldGroup.add(modeloEscena);
                 }
             );
 
@@ -236,10 +213,10 @@
             const lineGeo = new THREE.BufferGeometry().setFromPoints(puntos);
             const lineMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
             boundsLine = new THREE.LineSegments(lineGeo, lineMat);
-            scene.add(boundsLine);
+            worldGroup.add(boundsLine);
 
             refSpace.onreset = (evt) => {
-                if (boundsLine) scene.remove(boundsLine);
+                if (boundsLine) worldGroup.remove(boundsLine);
                 dibujarLimites(evt.referenceSpace);
             };
         }
@@ -261,32 +238,33 @@
                 infoDiv.style.display = 'block';
                 infoDiv.textContent = 'Iniciando ARCore...';
 
-                // ============================================
-                // CORRECCION: Esperar a que initThree termine
-                // (ahora es asincrona por makeXRCompatible)
-                // ============================================
-                await initThree();
+                initThree();
 
-                xrSession = await navigator.xr.requestSession('immersive-ar', {
+                const session = await navigator.xr.requestSession('immersive-ar', {
                     requiredFeatures: ['local-floor'],
                     optionalFeatures: ['bounded-floor']
                 });
 
-                xrGlLayer = new XRWebGLLayer(xrSession, gl);
-                xrSession.updateRenderState({ baseLayer: xrGlLayer });
-
+                // Intentar bounded-floor primero, fallback a local-floor
+                let refSpace;
                 try {
-                    const boundedRefSpace = await xrSession.requestReferenceSpace('bounded-floor');
-                    xrRefSpace = boundedRefSpace;
+                    refSpace = await session.requestReferenceSpace('bounded-floor');
                     infoDiv.textContent = 'Espacio delimitado detectado.';
-                    dibujarLimites(boundedRefSpace);
+                    dibujarLimites(refSpace);
                 } catch (e) {
                     console.log('Falling back to local-floor reference space');
                     infoDiv.textContent = 'Usando local-floor (sin limites de habitacion).';
-                    xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+                    refSpace = await session.requestReferenceSpace('local-floor');
                 }
 
-                xrSession.requestAnimationFrame(onXRFrame);
+                // Pasar sesion y espacio de referencia a Three.js
+                await renderer.xr.setSession(session);
+                renderer.xr.setReferenceSpace(refSpace);
+
+                infoDiv.textContent = 'Experiencia iniciada. Gira el telefono para explorar.';
+
+                // Iniciar loop de animacion
+                renderer.setAnimationLoop(animate);
 
             } catch (err) {
                 console.error(err);
@@ -295,32 +273,23 @@
             }
         }
 
-        function onXRFrame(time, frame) {
-            const session = frame.session;
-            session.requestAnimationFrame(onXRFrame);
+        function animate(time, frame) {
+            // Three.js ya actualizo la camara XR desde la pose de WebXR
+            const xrCamera = renderer.xr.getCamera();
 
-            const pose = frame.getViewerPose(xrRefSpace);
-            if (!pose || pose.views.length === 0) return;
+            // 1. Skybox siempre centrado en el viewer (para que no se vean bordes)
+            if (skyMesh) {
+                skyMesh.position.copy(xrCamera.position);
+            }
 
-            const view = pose.views[0];
-            const viewport = xrGlLayer.getViewport(view);
-
-            gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
-            gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-
-            const viewMat = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
-            const tempPos = new THREE.Vector3();
-            const quat = new THREE.Quaternion();
-            const tempScale = new THREE.Vector3();
-            viewMat.decompose(tempPos, quat, tempScale);
-
-            camera.position.set(0, 1.6, 0);
-            camera.quaternion.copy(quat);
-            camera.updateMatrix();
-            camera.updateMatrixWorld();
-
-            camera.projectionMatrix.fromArray(view.projectionMatrix);
-            camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+            // 2. CONTRATRASLACION: mover el mundo en sentido inverso a la posicion del usuario.
+            // Esto anula visualmente el desplazamiento fisico, dejando solo la rotacion.
+            // El resultado es equivalente a tener la camara fija en (0, 1.6, 0).
+            worldGroup.position.set(
+                xrCamera.position.x,
+                xrCamera.position.y - 1.6,
+                xrCamera.position.z
+            );
 
             renderer.render(scene, camera);
         }
