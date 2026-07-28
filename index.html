@@ -71,9 +71,9 @@
         <p id="indicaciones">
             Este ejemplo demuestra el uso de un espacio de referencia de "piso local"
             para proporcionar seguimiento a escala de la habitacion.
-            Monoscopico: solo gira el telefono, la posicion esta bloqueada.
+            AR Passthrough: camina libremente por tu sala.
         </p>
-        <button id="btn-entrar">INICIAR EXPERIENCIA</button>
+        <button id="btn-entrar">INICIAR EXPERIENCIA AR</button>
     </div>
     <div id="info">Cargando...</div>
 
@@ -105,7 +105,7 @@
         async function initThree() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.matrixAutoUpdate = false; // Control manual total de la matriz
+            camera.matrixAutoUpdate = false;
 
             const canvas = document.createElement('canvas');
             document.body.appendChild(canvas);
@@ -120,17 +120,21 @@
 
             await gl.makeXRCompatible();
 
+            // ============================================
+            // AR PASSTHROUGH: alpha true para ver la camara real
+            // ============================================
             renderer = new THREE.WebGLRenderer({ 
                 canvas: canvas, 
                 context: gl,
                 antialias: true, 
-                alpha: false 
+                alpha: true 
             });
 
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.outputColorSpace = THREE.SRGBColorSpace;
 
+            // Luces
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.5);
             hemiLight.position.set(0, 20, 0);
             scene.add(hemiLight);
@@ -139,32 +143,28 @@
             dirLight.position.set(10, 25, 10);
             scene.add(dirLight);
 
+            // ============================================
+            // AR PASSTHROUGH: Sin skybox opaco, sin fondo.
+            // La camara real de ARCore es el fondo.
+            // ============================================
+            scene.background = null;
+
+            // Opcional: environment map para iluminacion IBL en objetos PBR
+            // (solo si quieres reflejos realistas en el modelo)
             const texLoader = new THREE.TextureLoader();
             texLoader.load('textures/textura.png',
                 (texture) => {
                     texture.mapping = THREE.EquirectangularReflectionMapping;
                     texture.colorSpace = THREE.SRGBColorSpace;
-                    scene.background = texture;
                     scene.environment = texture;
-
-                    const geo = new THREE.SphereGeometry(500, 60, 40);
-                    geo.scale(-1, 1, 1);
-                    const mat = new THREE.MeshBasicMaterial({
-                        map: texture,
-                        side: THREE.BackSide,
-                        depthWrite: false
-                    });
-                    const skyMesh = new THREE.Mesh(geo, mat);
-                    skyMesh.renderOrder = -1000;
-                    scene.add(skyMesh);
                 },
                 undefined,
                 (err) => {
-                    console.warn('No se pudo cargar textures/textura.png');
-                    scene.background = new THREE.Color(0x111122);
+                    console.warn('No se pudo cargar textures/textura.png para environment');
                 }
             );
 
+            // Modelo GLTF anclado al piso real (Y=0)
             const loader = new GLTFLoader();
             loader.load('models/gltf/camp/ciudad.gltf',
                 (gltf) => {
@@ -178,7 +178,7 @@
                         }
                     });
                     scene.add(modeloEscena);
-                    infoDiv.textContent = 'Modelo cargado. Gira el telefono para explorar.';
+                    infoDiv.textContent = 'Modelo cargado. Camina libremente por tu sala.';
                 },
                 undefined,
                 (error) => {
@@ -293,51 +293,15 @@
             gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
             gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-            // ============================================================
-            // SOLUCION ROBUSTA: Usar la view matrix de WebXR directamente.
-            // La view matrix (inverse.matrix) transforma del mundo a la camara.
-            // Extraemos la rotacion pura (3x3) y reconstruimos una view matrix
-            // con posicion fija (0, 1.6, 0). Sin descomponer a Euler/quaternion.
-            // ============================================================
-            
-            // View matrix original de WebXR
-            const vm = new THREE.Matrix4().fromArray(view.transform.inverse.matrix);
-            
-            // Extraer la rotacion (3x3 superior). En una view matrix ortonormal,
-            // los ejes de la camara son las filas (o columnas, dependiendo de row/column major).
-            // Three.js usa column-major. Los elementos 0,1,2 son la primera columna = eje X de la camara.
-            const r00 = vm.elements[0], r10 = vm.elements[1], r20 = vm.elements[2];
-            const r01 = vm.elements[4], r11 = vm.elements[5], r21 = vm.elements[6];
-            const r02 = vm.elements[8], r12 = vm.elements[9], r22 = vm.elements[10];
-
-            // Posicion fija de la camara: (0, 1.6, 0)
-            // En una view matrix: columnas 0,1,2 son los ejes de la camara.
-            // La traslacion es: t = -R^T * p, donde p es la posicion de la camara.
-            // Como R es ortonormal y en column-major, R^T es la matriz de rotacion transpuesta.
-            const px = 0, py = 1.6, pz = 0;
-            const tx = -(r00 * px + r01 * py + r02 * pz);
-            const ty = -(r10 * px + r11 * py + r12 * pz);
-            const tz = -(r20 * px + r21 * py + r22 * pz);
-
-            // Construir la view matrix corregida con posicion fija
-            const fixedVM = new THREE.Matrix4();
-            fixedVM.set(
-                r00, r01, r02, tx,
-                r10, r11, r12, ty,
-                r20, r21, r22, tz,
-                0,   0,   0,   1
-            );
-
-            // Aplicar directamente a la camara de Three.js
-            camera.matrixWorldInverse.copy(fixedVM);
-            camera.matrixWorld.copy(fixedVM).invert();
+            // ============================================
+            // AR PASSTHROUGH + POSICION LIBRE:
+            // Usar la view matrix de WebXR directamente.
+            // El usuario camina libremente; la camara se traslada
+            // y rota con el dispositivo fisicamente.
+            // ============================================
+            camera.matrixWorldInverse.fromArray(view.transform.inverse.matrix);
+            camera.matrixWorld.copy(camera.matrixWorldInverse).invert();
             camera.matrix.copy(camera.matrixWorld);
-            
-            // Extraer position/quaternion/scale para consistencia interna
-            const _p = new THREE.Vector3();
-            const _q = new THREE.Quaternion();
-            const _s = new THREE.Vector3();
-            camera.matrix.decompose(_p, _q, _s);
 
             camera.projectionMatrix.fromArray(view.projectionMatrix);
             camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
