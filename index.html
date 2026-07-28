@@ -313,19 +313,18 @@ function onXRFrame(time, frame) {
     const pos = new THREE.Vector3(0, 1.6, 0);
     const camWorldMat = new THREE.Matrix4().makeTranslation(pos.x, pos.y, pos.z);
     camWorldMat.multiply(rot);
-    camera.matrix.copy(camWorldMat);
-    camera.matrixWorld.copy(camWorldMat);
-    camera.matrixWorldInverse.copy(camWorldMat).invert();
-    camera.projectionMatrix.fromArray(view.projectionMatrix);
-    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
     // --- CORRECCIÓN DIRECTA DEL PITCH INVERTIDO ---
     // Invertimos las componentes de la matriz que controlan el cabeceo (Pitch)
+    // Se ejecuta AQUÍ para que la cámara copie el resultado modificado
     camWorldMat.elements[1] = -camWorldMat.elements[1];
     camWorldMat.elements[5] = -camWorldMat.elements[5];
     camWorldMat.elements[9] = -camWorldMat.elements[9];
+	 camWorldMat.multiply(new THREE.Matrix4().makeRotationX(Math.PI));
+    camera.matrixWorldInverse.copy(camWorldMat).invert();
+    camera.projectionMatrix.fromArray(view.projectionMatrix);
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
     renderer.render(scene, camera);
 }
-
 		
         btnEntrar.addEventListener('click', iniciarExperiencia);
     </script>
