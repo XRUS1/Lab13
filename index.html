@@ -27,15 +27,15 @@
     // ==========================================
     const CAMERA_HEIGHT = 1.6;
     const CYLINDER_RADIUS = 60;
-    const CYLINDER_HEIGHT = 200;   // Muy alto para no ver los bordes
+    const CYLINDER_HEIGHT = 200;
     const SMOOTH_FACTOR = 0.08;
-    const PITCH_LIMIT = THREE.MathUtils.degToRad(75); // Limitar a 75 grados
+    const PITCH_LIMIT = THREE.MathUtils.degToRad(75);
 
     // ==========================================
     // ESCENA, CAMARA, RENDERER
     // ==========================================
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Fallback azul cielo
+    scene.background = new THREE.Color(0x87CEEB);
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -62,42 +62,38 @@
     scene.add(dirLight);
 
     // ==========================================
-    // CILINDRO ENVOLVENTE (BackSide, sin tapas, muy alto)
+    // CILINDRO ENVOLVENTE
     // ==========================================
     const texLoader = new THREE.TextureLoader();
     const panoTexture = texLoader.load(
       'textures/textura.png',
       undefined,
       undefined,
-      (err) => {
-        console.warn('Error cargando textura:', err);
-      }
+      (err) => console.warn('Error textura:', err)
     );
     panoTexture.colorSpace = THREE.SRGBColorSpace;
     panoTexture.wrapS = THREE.RepeatWrapping;
     panoTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-    // openEnded: true = sin tapas. Altura 200 para que nunca se vean los bordes
     const cylinderGeo = new THREE.CylinderGeometry(
       CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, true
     );
     const cylinderMat = new THREE.MeshBasicMaterial({
       map: panoTexture,
       side: THREE.BackSide,
-      color: 0x888888 // Visible si la textura falla
+      color: 0x888888
     });
     const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
-    cylinder.position.y = CAMERA_HEIGHT; // Centrado a la altura de ojos
+    cylinder.position.y = CAMERA_HEIGHT;
     scene.add(cylinder);
 
     // ==========================================
-    // SUELO DE RESPALDO (por si el modelo no carga o no tiene base)
+    // SUELO DE RESPALDO
     // ==========================================
     const groundGeo = new THREE.PlaneGeometry(200, 200);
     const groundMat = new THREE.MeshStandardMaterial({ color: 0x3d5c2d });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = 0;
     scene.add(ground);
 
     // ==========================================
@@ -112,88 +108,109 @@
         const center = box.getCenter(new THREE.Vector3());
         model.position.x = -center.x;
         model.position.z = -center.z;
-        model.position.y = -box.min.y; // Base en Y = 0
+        model.position.y = -box.min.y;
         scene.add(model);
-        console.log('Modelo cargado');
       },
       undefined,
-      (error) => {
-        console.error('Error cargando el modelo:', error);
-      }
+      (error) => console.error('Error modelo:', error)
     );
 
     // ==========================================
-    // GIROSCOPIO
+    // GIROSCOPIO — RELATIVE ORIENTATION SENSOR (moderno)
     // ==========================================
     let isOrientationActive = false;
-    let initialAlpha = null;
-
+    let initialQ = null; // Cuaternión inicial para calibrar "frente"
     const currentQ = new THREE.Quaternion();
     const targetQ = new THREE.Quaternion();
-    const deviceEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    const sensorQ = new THREE.Quaternion();
 
-    function handleOrientation(event) {
-      if (!isOrientationActive) return;
+    // Corrección: alinear eje del dispositivo con eje de la cámara
+    // En portrait, el dispositivo mira hacia +Z, la cámara de Three.js mira hacia -Z
+    // Rotamos -90° sobre X para que "vertical" = "mirar al frente"
+    const deviceToCamera = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ')
+    );
 
-      // alpha: brujula (0-360)
-      // beta: inclinacion frontal (-180 a 180). 90 = vertical
-      // gamma: inclinacion lateral (-90 a 90)
-      const alpha = event.alpha ? THREE.MathUtils.degToRad(event.alpha) : 0;
-      const beta = event.beta  ? THREE.MathUtils.degToRad(event.beta)  : 0;
-      const gamma = event.gamma ? THREE.MathUtils.degToRad(event.gamma) : 0;
-
-      if (initialAlpha === null) {
-        initialAlpha = alpha;
-      }
-
-      // Yaw: relativo al primer toque
-      let yaw = alpha - initialAlpha;
-
-      // Pitch: offset de 90 grados para que vertical = horizonte
-      // beta=90 (vertical) -> pitch=0 (mira al frente)
-      // beta=0 (plano)    -> pitch=+90 (mira al cielo)
-      // beta=180          -> pitch=-90 (mira al suelo)
-      let pitch = -(beta - Math.PI / 2);
-
-      // Limitar para no salirse del cilindro
-      pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
-
-      // Roll lateral
-      let roll = -gamma;
-
-      deviceEuler.set(pitch, yaw, roll, 'YXZ');
-      targetQ.setFromEuler(deviceEuler);
-    }
-
-    function activateGyroscope() {
+    async function initSensor() {
       const info = document.getElementById('info');
 
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission()
-          .then(permissionState => {
-            if (permissionState === 'granted') {
-              window.addEventListener('deviceorientation', handleOrientation);
-              isOrientationActive = true;
-              info.style.display = 'none';
-            } else {
-              info.textContent = 'Permiso denegado';
+      // OPCION 1: RelativeOrientationSensor (mejor, más estable)
+      if ('RelativeOrientationSensor' in window) {
+        try {
+          const sensor = new RelativeOrientationSensor({ frequency: 60 });
+          
+          sensor.addEventListener('reading', () => {
+            // sensor.quaternion = [x, y, z, w]
+            sensorQ.set(
+              sensor.quaternion[0],
+              sensor.quaternion[1],
+              sensor.quaternion[2],
+              sensor.quaternion[3]
+            );
+
+            // Aplicar corrección de eje
+            const orientedQ = new THREE.Quaternion().multiplyQuaternions(deviceToCamera, sensorQ);
+
+            // Calibrar: la primera lectura define "frente"
+            if (initialQ === null) {
+              initialQ = orientedQ.clone().invert();
             }
-          })
-          .catch((err) => {
-            console.error(err);
-            info.textContent = 'Error activando giroscopio';
+
+            // Aplicar offset inicial: target = initialQ * orientedQ
+            targetQ.multiplyQuaternions(initialQ, orientedQ);
           });
-      } else {
-        window.addEventListener('deviceorientation', handleOrientation);
-        isOrientationActive = true;
-        info.style.display = 'none';
+
+          await sensor.start();
+          isOrientationActive = true;
+          info.style.display = 'none';
+          return;
+        } catch (e) {
+          console.log('RelativeOrientationSensor falló, usando fallback:', e);
+        }
       }
+
+      // OPCION 2: Fallback deviceorientation
+      window.addEventListener('deviceorientation', handleDeviceOrientation);
+      isOrientationActive = true;
+      info.style.display = 'none';
     }
 
+    // ==========================================
+    // FALLBACK: deviceorientation (fórmula corregida)
+    // ==========================================
+    function handleDeviceOrientation(event) {
+      // IMPORTANTE: usar !== null para que 0 no sea tratado como false
+      const alpha = event.alpha !== null ? THREE.MathUtils.degToRad(event.alpha) : 0;
+      const beta  = event.beta  !== null ? THREE.MathUtils.degToRad(event.beta)  : 0;
+      const gamma = event.gamma !== null ? THREE.MathUtils.degToRad(event.gamma) : 0;
+
+      // Fórmula W3C: cuaternión desde alpha(Z), beta(X), gamma(Y)
+      const c1 = Math.cos(alpha / 2), c2 = Math.cos(beta / 2), c3 = Math.cos(gamma / 2);
+      const s1 = Math.sin(alpha / 2), s2 = Math.sin(beta / 2), s3 = Math.sin(gamma / 2);
+
+      const q = new THREE.Quaternion();
+      q.x = s1 * c2 * c3 - c1 * s2 * s3;
+      q.y = c1 * s2 * c3 + s1 * c2 * s3;
+      q.z = c1 * c2 * s3 + s1 * s2 * c3;
+      q.w = c1 * c2 * c3 - s1 * s2 * s3;
+
+      // Aplicar corrección de eje
+      const orientedQ = new THREE.Quaternion().multiplyQuaternions(deviceToCamera, q);
+
+      // Calibrar frente
+      if (initialQ === null) {
+        initialQ = orientedQ.clone().invert();
+      }
+
+      targetQ.multiplyQuaternions(initialQ, orientedQ);
+    }
+
+    // ==========================================
+    // ACTIVACION
+    // ==========================================
     function onFirstInteraction() {
       if (!isOrientationActive) {
-        activateGyroscope();
+        initSensor();
       }
     }
 
@@ -201,7 +218,7 @@
     document.body.addEventListener('click', onFirstInteraction, {once: true});
 
     // ==========================================
-    // BUCLE DE ANIMACION
+    // BUCLE
     // ==========================================
     function animate() {
       requestAnimationFrame(animate);
