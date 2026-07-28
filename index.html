@@ -299,41 +299,31 @@
 	function onXRFrame(time, frame) {
 		const session = frame.session;
 		session.requestAnimationFrame(onXRFrame);
-
 		const pose = frame.getViewerPose(xrRefSpace);
 		if (!pose || pose.views.length === 0) return;
-
 		const view = pose.views[0];
 		const viewport = xrGlLayer.getViewport(view);
-
 		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
 		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-
 		// Extraer quaternion del viewer
 		const mat = new THREE.Matrix4().fromArray(view.transform.matrix);
 		const p1 = new THREE.Vector3(), q1 = new THREE.Quaternion(), s1 = new THREE.Vector3();
 		mat.decompose(p1, q1, s1);
-
 		// Descomponer a Euler YXZ para obtener yaw/pitch/roll por separado
 		const euler = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
-
 		// Reconstruir quaternion con PITCH INVERTIDO, yaw y roll intactos
 		const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), euler.y);
 		const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -euler.x);
 		const qRoll  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), euler.z);
-
 		const qFinal = new THREE.Quaternion();
 		qFinal.multiplyQuaternions(qYaw, qPitch);
 		qFinal.multiply(qRoll);
-
 		camera.position.set(0, 1.6, 0);
 		camera.quaternion.copy(qFinal);
 		camera.updateMatrix();
 		camera.updateMatrixWorld();
-
 		camera.projectionMatrix.fromArray(view.projectionMatrix);
 		camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-
 		renderer.render(scene, camera);
 	}
 	
