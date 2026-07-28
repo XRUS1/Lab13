@@ -313,7 +313,7 @@
 		const euler = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
 		// Reconstruir quaternion con PITCH INVERTIDO, yaw y roll intactos
 		const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), euler.y);
-		const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -euler.x);
+		const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), euler.x);
 		const qRoll  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), euler.z);
 		const qFinal = new THREE.Quaternion();
 		qFinal.multiplyQuaternions(qPitch, qYaw);
