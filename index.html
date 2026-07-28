@@ -299,30 +299,44 @@
 function onXRFrame(time, frame) {
     const session = frame.session;
     session.requestAnimationFrame(onXRFrame);
+
     const pose = frame.getViewerPose(xrRefSpace);
     if (!pose || pose.views.length === 0) return;
+
     const view = pose.views;
+
     const viewport = xrGLLayer.getViewport(view);
     gl.bindFramebuffer(gl.FRAMEBUFFER, xrGLLayer.framebuffer);
     gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+
     // Tu código original intacto al 100% (Garantiza que veas la ciudad)
     const mat = new THREE.Matrix4().fromArray(view.transform.matrix);
     const p1 = new THREE.Vector3(), q1 = new THREE.Quaternion(), s1 = new THREE.Vector3();
     mat.decompose(p1, q1, s1);
+
     const euler = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
+
     const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), euler.y);
     const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -euler.x);
     const qRoll  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), euler.z);
     const qFinal = new THREE.Quaternion();
+
     qFinal.multiplyQuaternions(qYaw, qPitch);
     qFinal.multiply(qRoll);
+
     camera.position.set(0, 1.6, 0);
     camera.quaternion.copy(qFinal);
     camera.updateMatrix();
     camera.updateMatrixWorld();
+
     camera.projectionMatrix.fromArray(view.projectionMatrix);
-    camera.projectionMatrix.scale(new THREE.Vector3(1, -1, 1));
     camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+
+    // --- LA SOLUCIÓN NATIVA AL PITCH INVERTIDO ---
+    // En lugar de alterar WebXR, le decimos a Three.js que use su comando nativo
+    // para voltear verticalmente la rotación en X justo antes de pintar en pantalla
+    camera.rotateX(Math.PI);
+
     renderer.render(scene, camera);
 }
 
