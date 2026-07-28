@@ -1,344 +1,195 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="96x96" href="favicon-96x96.png">
-    <title>Seguimiento a escala de la habitacion</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background-color: #000;
-            font-family: sans-serif;
-            touch-action: none;
-        }
-        #overlay-inicio {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background-color: rgba(10, 10, 15, 0.9);
-            z-index: 10;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: #fff;
-            text-align: center;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-        #btn-entrar {
-            background-color: #107c10;
-            color: white;
-            border: none;
-            padding: 15px 35px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 8px;
-            cursor: pointer;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            transition: background-color 0.2s;
-            margin-top: 20px;
-        }
-        #btn-entrar:active { background-color: #0b520b; }
-        #indicaciones {
-            font-size: 14px;
-            color: #aaa;
-            max-width: 320px;
-            line-height: 1.5;
-        }
-        #info {
-            position: absolute;
-            top: 10px; left: 10px;
-            color: #fff;
-            background: rgba(0,0,0,0.5);
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            z-index: 5;
-            display: none;
-            pointer-events: none;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Diorama 360</title>
+  <link rel="stylesheet" href="main.css">
 </head>
 <body>
-    <div id="overlay-inicio">
-        <h2>Escala de habitacion</h2>
-        <p id="indicaciones">
-            Este ejemplo demuestra el uso de un espacio de referencia de "piso local"
-            para proporcionar seguimiento a escala de la habitacion.
-            Monoscopico: solo gira el telefono, la posicion esta bloqueada.
-        </p>
-        <button id="btn-entrar">INICIAR EXPERIENCIA</button>
-    </div>
-    <div id="info">Cargando...</div>
-
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "./build/three.module.js",
-            "three/addons/": "./jsm/"
-        }
+  <div id="info">Toca la pantalla para activar el giroscopio</div>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./build/three.module.js",
+      "three/addons/": "./jsm/"
     }
-    </script>
+  }
+  </script>
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  <script type="module">
+    import * as THREE from 'three';
+    import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
-        let camera, scene, renderer;
-        let gl = null;
-        let xrSession = null;
-        let xrRefSpace = null;
-        let xrGlLayer = null;
-        let modeloEscena = null;
-        let boundsLine = null;
-	let quatObjetivo = new THREE.Quaternion();
+    // ==========================================
+    // CONFIGURACION
+    // ==========================================
+    const CAMERA_HEIGHT = 1.6;
+    const CYLINDER_RADIUS = 60;
+    const CYLINDER_HEIGHT = 40;
+    const SMOOTH_FACTOR = 0.08;
 
-        const btnEntrar = document.getElementById('btn-entrar');
-        const overlayInicio = document.getElementById('overlay-inicio');
-        const infoDiv = document.getElementById('info');
+    // ==========================================
+    // ESCENA, CAMARA, RENDERER
+    // ==========================================
+    const scene = new THREE.Scene();
 
-        // ============================================
-        // CORRECCION: initThree es async para poder
-        // esperar a makeXRCompatible()
-        // ============================================
-        async function initThree() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 1.6, 0);
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
+    camera.position.set(0, CAMERA_HEIGHT, 0);
 
-            const canvas = document.createElement('canvas');
-            document.body.appendChild(canvas);
+    const renderer = new THREE.WebGLRenderer({antialias: true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
 
-            gl = canvas.getContext('webgl2', { antialias: true }) 
-              || canvas.getContext('webgl', { antialias: true });
+    // ==========================================
+    // LUCES
+    // ==========================================
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
 
-            if (!gl) {
-                alert('WebGL no esta soportado en este dispositivo.');
-                throw new Error('WebGL no disponible');
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    dirLight.position.set(10, 20, 10);
+    scene.add(dirLight);
+
+    // ==========================================
+    // CILINDRO ENVOLVENTE (BackSide)
+    // ==========================================
+    const texLoader = new THREE.TextureLoader();
+    const panoTexture = texLoader.load('textures/textura.png');
+    panoTexture.colorSpace = THREE.SRGBColorSpace;
+    panoTexture.wrapS = THREE.RepeatWrapping;
+    panoTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const cylinderGeo = new THREE.CylinderGeometry(
+      CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, true
+    );
+    const cylinderMat = new THREE.MeshBasicMaterial({
+      map: panoTexture,
+      side: THREE.BackSide
+    });
+    const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
+    cylinder.position.y = CAMERA_HEIGHT;
+    scene.add(cylinder);
+
+    // ==========================================
+    // MODELO GLTF
+    // ==========================================
+    const loader = new GLTFLoader();
+    loader.load(
+      'models/gltf/camp/ciudad.gltf',
+      (gltf) => {
+        const model = gltf.scene;
+        // Centrar el modelo en el origen horizontalmente
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.x = -center.x;
+        model.position.z = -center.z;
+        // Mantener la base en Y = 0
+        model.position.y = -box.min.y;
+        scene.add(model);
+      },
+      undefined,
+      (error) => {
+        console.error('Error cargando el modelo:', error);
+      }
+    );
+
+    // ==========================================
+    // GIROSCOPIO (DeviceOrientation)
+    // ==========================================
+    let isOrientationActive = false;
+    let initialAlpha = null;
+
+    const currentQ = new THREE.Quaternion();
+    const targetQ = new THREE.Quaternion();
+    const deviceEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+    function handleOrientation(event) {
+      if (!isOrientationActive) return;
+
+      const alpha = event.alpha ? THREE.MathUtils.degToRad(event.alpha) : 0;
+      const beta = event.beta ? THREE.MathUtils.degToRad(event.beta) : 0;
+      const gamma = event.gamma ? THREE.MathUtils.degToRad(event.gamma) : 0;
+
+      if (initialAlpha === null) {
+        initialAlpha = alpha;
+      }
+
+      // Yaw relativo
+      let yaw = alpha - initialAlpha;
+      // Pitch invertido para que al inclinar hacia arriba se vea el cielo
+      let pitch = -beta;
+      // Roll
+      let roll = -gamma;
+
+      deviceEuler.set(pitch, yaw, roll, 'YXZ');
+      targetQ.setFromEuler(deviceEuler);
+    }
+
+    function requestOrientationPermission() {
+      const info = document.getElementById('info');
+
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(permissionState => {
+            if (permissionState === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation);
+              isOrientationActive = true;
+              info.style.display = 'none';
+            } else {
+              info.textContent = 'Permiso de giroscopio denegado';
             }
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation);
+        isOrientationActive = true;
+        info.style.display = 'none';
+      }
+    }
 
-            // ============================================
-            // CORRECCION CLAVE: Marcar el contexto como
-            // XR-compatible de forma asincrona
-            // ============================================
-            await gl.makeXRCompatible();
+    document.body.addEventListener('click', () => {
+      if (!isOrientationActive) {
+        requestOrientationPermission();
+      }
+    }, {once: true});
 
-            renderer = new THREE.WebGLRenderer({ 
-                canvas: canvas, 
-                context: gl,
-                antialias: true, 
-                alpha: false 
-            });
+    // ==========================================
+    // BUCLE DE ANIMACION
+    // ==========================================
+    const clock = new THREE.Clock();
 
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.outputColorSpace = THREE.SRGBColorSpace;
+    function animate() {
+      requestAnimationFrame(animate);
 
-            // Luces
-            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.5);
-            hemiLight.position.set(0, 20, 0);
-            scene.add(hemiLight);
+      if (isOrientationActive) {
+        currentQ.slerp(targetQ, SMOOTH_FACTOR);
+        camera.quaternion.copy(currentQ);
+      }
 
-            const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
-            dirLight.position.set(10, 25, 10);
-            scene.add(dirLight);
+      renderer.render(scene, camera);
+    }
 
-            // Skybox equirectangular opaco
-            const texLoader = new THREE.TextureLoader();
-            texLoader.load('textures/textura.png',
-                (texture) => {
-                    texture.mapping = THREE.EquirectangularReflectionMapping;
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    scene.background = texture;
-                    scene.environment = texture;
+    // ==========================================
+    // RESPONSIVE
+    // ==========================================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
-                    const geo = new THREE.SphereGeometry(500, 60, 40);
-                    geo.scale(-1, 1, 1);
-                    const mat = new THREE.MeshBasicMaterial({
-                        map: texture,
-                        side: THREE.BackSide,
-                        depthWrite: false
-                    });
-                    const skyMesh = new THREE.Mesh(geo, mat);
-                    skyMesh.renderOrder = -1000;
-                    scene.add(skyMesh);
-                },
-                undefined,
-                (err) => {
-                    console.warn('No se pudo cargar textures/textura.png');
-                    scene.background = new THREE.Color(0x111122);
-                }
-            );
-
-            // Modelo GLTF
-            const loader = new GLTFLoader();
-            loader.load('models/gltf/camp/ciudad.gltf',
-                (gltf) => {
-                    modeloEscena = gltf.scene;
-                    modeloEscena.position.set(0, 0, 0);
-                    modeloEscena.traverse((node) => {
-                        if (node.isMesh) {
-                            node.castShadow = true;
-                            node.receiveShadow = true;
-                            if (node.material.map) node.material.map.colorSpace = THREE.SRGBColorSpace;
-                        }
-                    });
-                    scene.add(modeloEscena);
-                    infoDiv.textContent = 'Modelo cargado. Gira el telefono para explorar.';
-                },
-                undefined,
-                (error) => {
-                    console.warn('No se pudo cargar models/gltf/camp/ciudad.gltf', error);
-                    infoDiv.textContent = 'Error modelo. Usando geometria de respaldo.';
-                    const grupo = new THREE.Group();
-                    const boxGeom = new THREE.BoxGeometry(2, 5, 2);
-                    const boxMat = new THREE.MeshStandardMaterial({ color: 0x445577 });
-                    for (let x = -20; x <= 20; x += 8) {
-                        for (let z = -20; z <= 20; z += 8) {
-                            if (x === 0 && z === 0) continue;
-                            const edif = new THREE.Mesh(boxGeom, boxMat);
-                            edif.position.set(x, 2.5, z);
-                            grupo.add(edif);
-                        }
-                    }
-                    modeloEscena = grupo;
-                    scene.add(modeloEscena);
-                }
-            );
-
-            window.addEventListener('resize', onWindowResize);
-        }
-
-        function onWindowResize() {
-            if (!camera || !renderer) return;
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function dibujarLimites(refSpace) {
-            if (!refSpace.boundsGeometry || refSpace.boundsGeometry.length === 0) return;
-
-            const puntos = [];
-            const geom = refSpace.boundsGeometry;
-            for (let i = 0; i < geom.length; i++) {
-                const p1 = geom[i];
-                const p2 = geom[(i + 1) % geom.length];
-                puntos.push(new THREE.Vector3(p1.x, p1.y, p1.z));
-                puntos.push(new THREE.Vector3(p2.x, p2.y, p2.z));
-            }
-
-            const lineGeo = new THREE.BufferGeometry().setFromPoints(puntos);
-            const lineMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-            boundsLine = new THREE.LineSegments(lineGeo, lineMat);
-            scene.add(boundsLine);
-
-            refSpace.onreset = (evt) => {
-                if (boundsLine) scene.remove(boundsLine);
-                dibujarLimites(evt.referenceSpace);
-            };
-        }
-
-        async function iniciarExperiencia() {
-            if (!navigator.xr) {
-                alert('WebXR no esta soportado en este navegador.');
-                return;
-            }
-
-            try {
-                const supported = await navigator.xr.isSessionSupported('immersive-ar');
-                if (!supported) {
-                    alert('immersive-ar no esta soportado. Usa Chrome en Android con ARCore.');
-                    return;
-                }
-
-                overlayInicio.style.display = 'none';
-                infoDiv.style.display = 'block';
-                infoDiv.textContent = 'Iniciando ARCore...';
-
-                // ============================================
-                // CORRECCION: Esperar a que initThree termine
-                // (ahora es asincrona por makeXRCompatible)
-                // ============================================
-                await initThree();
-
-                xrSession = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['local-floor'],
-                    optionalFeatures: ['bounded-floor']
-                });
-
-                xrGlLayer = new XRWebGLLayer(xrSession, gl);
-                xrSession.updateRenderState({ baseLayer: xrGlLayer });
-
-                try {
-                    const boundedRefSpace = await xrSession.requestReferenceSpace('bounded-floor');
-                    xrRefSpace = boundedRefSpace;
-                    infoDiv.textContent = 'Espacio delimitado detectado.';
-                    dibujarLimites(boundedRefSpace);
-                } catch (e) {
-                    console.log('Falling back to local-floor reference space');
-                    infoDiv.textContent = 'Usando local-floor (sin limites de habitacion).';
-                    xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
-                }
-
-                xrSession.requestAnimationFrame(onXRFrame);
-
-            } catch (err) {
-                console.error(err);
-                infoDiv.textContent = 'Error: ' + err.message;
-                alert('Error al iniciar: ' + err.message);
-            }
-        }
-
-	function onXRFrame(time, frame) {
-		const session = frame.session;
-		session.requestAnimationFrame(onXRFrame);
-
-		const pose = frame.getViewerPose(xrRefSpace);
-		if (!pose || pose.views.length === 0) return;
-
-		const view = pose.views[0];
-		const viewport = xrGlLayer.getViewport(view);
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGlLayer.framebuffer);
-		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-
-		// Extraer quaternion del viewer
-		const mat = new THREE.Matrix4().fromArray(view.transform.matrix);
-		const p1 = new THREE.Vector3(), q1 = new THREE.Quaternion(), s1 = new THREE.Vector3();
-		mat.decompose(p1, q1, s1);
-
-		// Descomponer a Euler YXZ para obtener yaw/pitch/roll por separado
-		const euler = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
-
-		// Reconstruir quaternion con PITCH INVERTIDO, yaw y roll intactos
-		const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), euler.y);
-		const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -euler.x);
-		const qRoll  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), euler.z);
-
-		const qFinal = new THREE.Quaternion();
-		qFinal.multiplyQuaternions(qYaw, qPitch);
-		qFinal.multiply(qRoll);
-
-		camera.position.set(0, 1.6, 0);
-		camera.quaternion.copy(qFinal);
-		camera.updateMatrix();
-		camera.updateMatrixWorld();
-
-		camera.projectionMatrix.fromArray(view.projectionMatrix);
-		camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-
-		renderer.render(scene, camera);
-	}
-	
-        btnEntrar.addEventListener('click', iniciarExperiencia);
-    </script>
+    animate();
+  </script>
 </body>
 </html>
 	
