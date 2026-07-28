@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
+head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
     <meta name="mobile-web-app-capable" content="yes">
@@ -156,7 +154,7 @@
             loader.load('models/gltf/camp/ciudad.gltf',
                 (gltf) => {
                     modeloEscena = gltf.scene;
-                    modeloEscena.position.set(0, -1.0, 0);
+                    modeloEscena.position.set(0, -1.5, 0);
                     modeloEscena.traverse((node) => {
                         if (node.isMesh) {
                             node.castShadow = true;
