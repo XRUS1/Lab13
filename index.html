@@ -27,15 +27,15 @@
     // ==========================================
     const CAMERA_HEIGHT = 1.6;
     const CYLINDER_RADIUS = 60;
-    const CYLINDER_HEIGHT = 80; // Aumentado para cubrir campo vertical
+    const CYLINDER_HEIGHT = 200;   // Muy alto para no ver los bordes
     const SMOOTH_FACTOR = 0.08;
-    const PITCH_LIMIT = Math.PI / 2.2; // Limite para evitar ver los polos del cilindro
+    const PITCH_LIMIT = THREE.MathUtils.degToRad(75); // Limitar a 75 grados
 
     // ==========================================
     // ESCENA, CAMARA, RENDERER
     // ==========================================
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Cielo azul, nunca negro
+    scene.background = new THREE.Color(0x87CEEB); // Fallback azul cielo
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -62,7 +62,7 @@
     scene.add(dirLight);
 
     // ==========================================
-    // CILINDRO ENVOLVENTE (BackSide, cerrado)
+    // CILINDRO ENVOLVENTE (BackSide, sin tapas, muy alto)
     // ==========================================
     const texLoader = new THREE.TextureLoader();
     const panoTexture = texLoader.load(
@@ -77,18 +77,28 @@
     panoTexture.wrapS = THREE.RepeatWrapping;
     panoTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-    // openEnded: false = con tapas arriba y abajo
+    // openEnded: true = sin tapas. Altura 200 para que nunca se vean los bordes
     const cylinderGeo = new THREE.CylinderGeometry(
-      CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, false
+      CYLINDER_RADIUS, CYLINDER_RADIUS, CYLINDER_HEIGHT, 64, 1, true
     );
     const cylinderMat = new THREE.MeshBasicMaterial({
       map: panoTexture,
       side: THREE.BackSide,
-      color: 0x888888 // Fallback visible si la textura no carga
+      color: 0x888888 // Visible si la textura falla
     });
     const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
-    cylinder.position.y = CAMERA_HEIGHT;
+    cylinder.position.y = CAMERA_HEIGHT; // Centrado a la altura de ojos
     scene.add(cylinder);
+
+    // ==========================================
+    // SUELO DE RESPALDO (por si el modelo no carga o no tiene base)
+    // ==========================================
+    const groundGeo = new THREE.PlaneGeometry(200, 200);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3d5c2d });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    scene.add(ground);
 
     // ==========================================
     // MODELO GLTF
@@ -102,9 +112,9 @@
         const center = box.getCenter(new THREE.Vector3());
         model.position.x = -center.x;
         model.position.z = -center.z;
-        model.position.y = -box.min.y;
+        model.position.y = -box.min.y; // Base en Y = 0
         scene.add(model);
-        console.log('Modelo cargado correctamente');
+        console.log('Modelo cargado');
       },
       undefined,
       (error) => {
@@ -125,24 +135,30 @@
     function handleOrientation(event) {
       if (!isOrientationActive) return;
 
+      // alpha: brujula (0-360)
+      // beta: inclinacion frontal (-180 a 180). 90 = vertical
+      // gamma: inclinacion lateral (-90 a 90)
       const alpha = event.alpha ? THREE.MathUtils.degToRad(event.alpha) : 0;
-      const beta = event.beta ? THREE.MathUtils.degToRad(event.beta) : 0;
+      const beta = event.beta  ? THREE.MathUtils.degToRad(event.beta)  : 0;
       const gamma = event.gamma ? THREE.MathUtils.degToRad(event.gamma) : 0;
 
       if (initialAlpha === null) {
         initialAlpha = alpha;
       }
 
-      // Yaw relativo al primer toque
+      // Yaw: relativo al primer toque
       let yaw = alpha - initialAlpha;
 
-      // Pitch invertido: inclinar arriba = ver cielo, abajo = ver suelo
-      let pitch = -beta;
+      // Pitch: offset de 90 grados para que vertical = horizonte
+      // beta=90 (vertical) -> pitch=0 (mira al frente)
+      // beta=0 (plano)    -> pitch=+90 (mira al cielo)
+      // beta=180          -> pitch=-90 (mira al suelo)
+      let pitch = -(beta - Math.PI / 2);
 
-      // Limitar pitch para no ver los polos del cilindro
+      // Limitar para no salirse del cilindro
       pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
 
-      // Roll
+      // Roll lateral
       let roll = -gamma;
 
       deviceEuler.set(pitch, yaw, roll, 'YXZ');
@@ -175,7 +191,6 @@
       }
     }
 
-    // Activar con touch o click (para cubrir todos los moviles)
     function onFirstInteraction() {
       if (!isOrientationActive) {
         activateGyroscope();
