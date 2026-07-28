@@ -156,7 +156,7 @@
             loader.load('models/gltf/camp/ciudad.gltf',
                 (gltf) => {
                     modeloEscena = gltf.scene;
-                    modeloEscena.position.set(0, 0, 0);
+                    modeloEscena.position.set(0, -1.0, 0);
                     modeloEscena.traverse((node) => {
                         if (node.isMesh) {
                             node.castShadow = true;
