@@ -297,50 +297,32 @@
             }
         }
 
-	function onXRFrame(time, frame) {
-		const session = frame.session;
-		session.requestAnimationFrame(onXRFrame);
-
-		const pose = frame.getViewerPose(xrRefSpace);
-		if (!pose || pose.views.length === 0) return;
-
-		const view = pose.views[0];
-		const viewport = xrGLLayer.getViewport(view);
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGLLayer.framebuffer);
-		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
-
-		// view.transform.matrix = viewer-to-world (orientación real del dispositivo)
-		const viewerMat = new THREE.Matrix4().fromArray(view.transform.matrix);
-
-		// Extraer SOLO la rotación (3x3 superior izquierda)
-		let rot = new THREE.Matrix4();
-		rot.extractRotation(viewerMat);
-
-		// --- CORRECCIÓN DEL PITCH INVERTIDO ---
-		// Desarmamos la rotación en un Quaternion para corregir el eje X de forma limpia
-		const quatRot = new THREE.Quaternion().setFromRotationMatrix(rot);
-		// Invertimos el ángulo del Pitch (eje X) multiplicando por -1 su componente
-		quatRot.x = -quatRot.x;
-		quatRot.w = -quatRot.w; // Mantiene la consistencia matemática de la rotación
-		// Volvemos a convertir el Quaternion corregido a nuestra matriz de rotación
-		rot.makeRotationFromQuaternion(quatRot);
-
-		// Construir la matriz world de la cámara: rotación del viewer + posición fija
-		const pos = new THREE.Vector3(0, 1.6, 0);
-		const camWorldMat = new THREE.Matrix4().makeTranslation(pos.x, pos.y, pos.z);
-		camWorldMat.multiply(rot);
-
-		// Aplicar directamente a la cámara sin pasar por Euler/quaternions
-		camera.matrix.copy(camWorldMat);
-		camera.matrixWorld.copy(camWorldMat);
-		camera.matrixWorldInverse.copy(camWorldMat).invert();
-
-		camera.projectionMatrix.fromArray(view.projectionMatrix);
-		camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-
-		renderer.render(scene, camera);
-	}
+		function onXRFrame(time, frame) {
+    		const session = frame.session;
+    		session.requestAnimationFrame(onXRFrame);
+    		const pose = frame.getViewerPose(xrRefSpace);
+    		if (!pose || pose.views.length === 0) return;
+    		const view = pose.views[0];
+    		const viewport = xrGLLayer.getViewport(view);
+    		gl.bindFramebuffer(gl.FRAMEBUFFER, xrGLLayer.framebuffer);
+    		gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+    		// Tu código original intacto
+    		const viewerMat = new THREE.Matrix4().fromArray(view.transform.matrix);
+    		const rot = new THREE.Matrix4();
+    		rot.extractRotation(viewerMat);
+    		const pos = new THREE.Vector3(0, 1.6, 0);
+    		const camWorldMat = new THREE.Matrix4().makeTranslation(pos.x, pos.y, pos.z);
+    		camWorldMat.multiply(rot);
+    		camera.matrix.copy(camWorldMat);
+    		camera.matrixWorld.copy(camWorldMat);
+    		camera.matrixWorldInverse.copy(camWorldMat).invert();
+    		camera.projectionMatrix.fromArray(view.projectionMatrix);
+    		camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    		// --- CORRECCIÓN DIRECTA DEL PITCH INVERTIDO ---
+    		// En lugar de romper la matriz, le decimos a la cámara que invierta su rotación local en X
+    		camera.rotation.x = -camera.rotation.x;
+    		renderer.render(scene, camera);
+	   }
 	
         btnEntrar.addEventListener('click', iniciarExperiencia);
     </script>
