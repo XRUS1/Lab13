@@ -298,7 +298,7 @@
 
 function onXRFrame(time, frame) {
     const session = frame.session;
-    session.requestAnimationFrame(onXRFrame);
+    session.requestAnimationFrame(onXRFrame); // <--- ESTA LÍNEA ES LA QUE ACTIVA EL BOTÓN VERDE
 
     const pose = frame.getViewerPose(xrRefSpace);
     if (!pose || pose.views.length === 0) return;
@@ -309,24 +309,24 @@ function onXRFrame(time, frame) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, xrGLLayer.framebuffer);
     gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
 
-    // Extraer quaternion del viewer
+    // Extraer quaternion del viewer (Tu lógica original intacta)
     const mat = new THREE.Matrix4().fromArray(view.transform.matrix);
     const p1 = new THREE.Vector3(), q1 = new THREE.Quaternion(), s1 = new THREE.Vector3();
     mat.decompose(p1, q1, s1);
 
-    // Descomponer a Euler YXZ para obtener yaw/pitch/roll por separado
+    // Descomponer a Euler YXZ
     const euler = new THREE.Euler().setFromQuaternion(q1, 'YXZ');
 
+    // --- LA SOLUCIÓN INVISIBLE AL PITCH AL REVÉS ---
+    // En lugar de tocar los Quaternions o los vectores de abajo, invertimos el valor directo aquí
+    const pitchCorregido = -euler.x; 
+
+    // Reconstrucción pura con tus variables y tu orden nativo (qYaw primero, qPitch después)
     const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), euler.y);
-    
-    // --- CORRECCIÓN GEOMÉTRICA DEL PITCH INVERTIDO ---
-    // Conservamos el eje original (1, 0, 0) y le sumamos 180 grados (Math.PI) para invertir la mirada vertical sin perder la ciudad
-    const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -euler.x + Math.PI);
-    
+    const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitchCorregido);
     const qRoll  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), euler.z);
     const qFinal = new THREE.Quaternion();
 
-    // Mantener tu orden de multiplicación original aeroespacial
     qFinal.multiplyQuaternions(qYaw, qPitch);
     qFinal.multiply(qRoll);
 
