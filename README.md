@@ -1,2 +1,2 @@
-# Lab13: Realidad Virtual, textura y modelo 3D Three.js. Nivel Piso
-
+# Lab13: AR Passthrough — Escala de Habitación
+## WebXR nativo, integración con espacio real, tracking 6DoF completo, alpha blending.
